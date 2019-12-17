@@ -11,16 +11,37 @@ def getResponseJSON(code, message, data):
     return response_obj
 
 routes = web.RouteTableDef()
-
+@routes.get('/state')
 async def chek_state_of_machine(request):
     """
     ЭНд поинт для получения статусов о состоянии срвиса
     :param request:
     :return:
     """
-    logger = request.app['logger']
-    params = request.rel_url.query
-    pass
+    try:
+        logger = request.app['logger']
+        pool = request.app[POOL_NAME]
+        params = request.rel_url.query
+        logger.error(f'Status of device = {params["id"]} is {params["state"]}')
+        if pool is None:
+            logger.error('No connection to the database')
+            return web.json_response(getResponseJSON(5, 'No connection to the database', {}),
+                                     status=RESPONSE_STATUS)
+
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                if params["state"] is 3:
+                    """ Last seen of device"""
+                    await conn.execute(f'UPDATE polycomm_device SET '
+                                       f'last_query_tm={datetime.strptime(datetime.now(),FORMAT_DATE_TIME)} '
+                                       f'WHERE code={params["id"]};')
+                elif params["state"] is 2:
+                    pass
+                elif params["state"] is 1:
+                    pass
+
+    except Exception as exc:
+        logger.error(f'Some trouble in check_state procedure {exc}')
 
 
 
@@ -179,6 +200,7 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
                 '''
                  Формируем строку запроса для вставки упаковки в бльшую БД
                 '''
+
                 pack_type = 1
 
                 last_id = await conn.fetchrow(f'SELECT polycommid, totalid, partialid FROM polycomm_suitcase '
@@ -191,11 +213,17 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
                         elif rec["ID_Parziale"] == last_id[2]+1:
                             pack_type = 2
                         else:
-                            logger.error('total_id or partial_id don`t incremented')
+                            if pack_type==1:
+                                '''!!!!!!!Сделать уведомление !!!!'''
+                                logger.error(f'total_id currupted counter device =\'{poly_id}\' ')
+                            elif pack_type==2:
+                                '''!!!!!!!Сделать уведомление !!!!'''
+                                logger.error(f'partial_id currupted counter device =\'{poly_id}\'')
+
                             #return web.json_response(getResponseJSON(6, 'total_id or partal_id don`t incremented',
                             #                                         {}), status=RESPONSE_STATUS)
                     else:
-                        logger.error( f'last_id wasn`t incremented.Some trouble on machine =  {poly_id}')
+                        logger.error( f'last_id wasn`t incremented.Some trouble on device =\'{poly_id}\'')
                         return web.json_response(getResponseJSON(6, 'last_id wasn`t incremented',
                                                                  {}), status=RESPONSE_STATUS)
                 else:
@@ -210,15 +238,10 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
 
                 start_time = datetime.fromisoformat(rec["Data_ini"])
                 end_time = datetime.fromisoformat(rec["Data"])
-                if device_tz is not server_tz:
-
-                    moscow_date = end_time + timedelta(seconds=delta.total_seconds())
-                    moscow_dateini = start_time + timedelta(seconds=delta.total_seconds())
-                else:
-                    moscow_date = end_time
-                    moscow_dateini = start_time
+                moscow_date = end_time + timedelta(seconds=delta.total_seconds())
+                moscow_dateini = start_time + timedelta(seconds=delta.total_seconds())
                 duration =  end_time - start_time
-
+                #!!!!!!!!!!!!!!!!!!!!!!!!!! Уведомление о длительности !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
                 insert_query = f'INSERT INTO polycomm_suitcase (' \
                     f'device,' \
