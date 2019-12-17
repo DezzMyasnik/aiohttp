@@ -35,6 +35,10 @@ async def chek_state_of_machine(request):
                     await conn.execute(f'UPDATE polycomm_device SET '
                                        f'last_query_tm={datetime.strptime(datetime.now(),FORMAT_DATE_TIME)} '
                                        f'WHERE code={params["id"]};')
+                    logger.info(f'Michine {params["id"]} is on air')
+                    return web.json_response(getResponseJSON(0, 'Request successfully processed', {}),
+                                             status=RESPONSE_STATUS)
+
                 elif params["state"] is 2:
                     pass
                 elif params["state"] is 1:
