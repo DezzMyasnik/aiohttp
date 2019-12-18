@@ -98,7 +98,7 @@ async def check(request):
         logger.error('Исключение при обрабтке запросов check: ' + str(exc))
 
 @routes.get('/collectors')
-@routes.post('/collectors')
+
 async def collectors(request):
     '''
     GET-запрос на последний ID в базе по ID машины и таблице
@@ -137,11 +137,15 @@ async def collectors(request):
                                 status=RESPONSE_STATUS)
                     except Exception as excc:
                         logger.error('Error at conn.fetchval at collector function: ' + str(excc))
+    except BaseException as ex:
+        logger.error('Exeception from operate request from suitcase and alarm collector: ' + str(ex))
 
-        '''
-        POST запрос
-        '''
-
+@routes.post('/collectors')
+async def collector_post(request):
+    '''
+    POST запрос
+    '''
+    try:
         if request.method == 'POST':
             pool = request.app[POOL_NAME]
             logger = request.app['logger']
@@ -204,13 +208,18 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
 
 
                 if 'Data_Fine' not in rec.keys():
-                    insert_query = await create_insert_query_polycomm(conn, delta, logger, poly_id, rec)
+                    insert_query, issue_dict = await create_insert_query_polycomm(conn, delta, logger, poly_id, rec)
                 else:
-                    insert_query = await create_insert_query_packfly(conn, delta, logger, poly_id, rec)
+                    insert_query, issue_dict = await create_insert_query_packfly(conn, delta, logger, poly_id, rec)
 
                     polycomm_id = await conn.fetchval(insert_query)
 
                     if polycomm_id is not None:
+                        if issue_dict:
+                            for keys in issue_dict.keys():
+                                  await set_polycomm_issue(conn=conn, type_issue=keys, suitcase=polycomm_id, logger=logger)
+
+
                         if VERBOSE == 3:
                             # logger.debug('request data: ' + str(data))
                             logger.info(
@@ -275,12 +284,12 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
 
 async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
     '''
-                     Формируем строку запроса для вставки упаковки в бльшую БД из локальной БД Polycomm
+    Формируем строку запроса для вставки упаковки в бльшую БД из локальной БД Polycomm
     '''
-    pack_type = 1
+
     last_id = await conn.fetchrow(f'SELECT polycommid, totalid, partialid FROM polycomm_suitcase '
                                   f'WHERE device =\'{poly_id}\' ORDER BY polycommid DESC LIMIT 1;')
-    pack_type = await check_ids_increment(last_id, logger, pack_type, poly_id, rec)
+    result_pack_type = await check_ids_increment(last_id, logger, poly_id, rec)
     if 'T' in rec['Data']:
         rec['Data'] = rec["Data"].replace('T', ' ')
         rec['Data_ini'] = rec["Data_ini"].replace('T', ' ')
@@ -289,7 +298,23 @@ async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
     moscow_date = end_time + timedelta(seconds=delta.total_seconds())
     moscow_dateini = start_time + timedelta(seconds=delta.total_seconds())
     duration = end_time - start_time
-    # !!!!!!!!!!!!!!!!!!!!!!!!!! Уведомление о длительности !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    issue_dict = defaultdict(int)
+
+    if result_pack_type==777:
+        issue_dict['invalidRecordsNumeration'] += 1
+        result_pack_type  = 1
+    elif result_pack_type == 888:
+        issue_dict['invalidSingleRecordsNumeration'] += 1
+        result_pack_type = 1
+    elif  result_pack_type == 999:
+        issue_dict['invalidDoubleRecordsNumeration'] += 1
+        result_pack_type = 1
+
+    if duration.seconds < 30:
+        issue_dict['durationBelowLimit'] += 1
+    elif duration.seconds >120:
+        issue_dict['durationOverLimit'] += 1
+
     insert_query = f'INSERT INTO polycomm_suitcase (' \
         f'device,' \
         f'polycommid,' \
@@ -318,9 +343,9 @@ async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
         f'{rec["KO_Peso"]},' \
         f'{rec["KO_STOP"]},' \
         f'{duration.seconds},' \
-        f'{pack_type}, {pack_type}, {False},' \
+        f'{result_pack_type}, {result_pack_type}, {False},' \
         f'\'{end_time}\', \'{start_time}\') RETURNING polycom_id;'
-    return insert_query
+    return insert_query, issue_dict
 
 
 async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
@@ -333,9 +358,10 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
     :param rec:
     :return:
     """
-    pack_type = 1
+
     last_id = await conn.fetchrow(f'SELECT polycommid, totalid, partialid FROM polycomm_suitcase '
                                   f'WHERE device =\'{poly_id}\' ORDER BY polycommid DESC LIMIT 1;')
+    #Нарушение сквозной нумерации упаковок
     #pack_type = await check_ids_increment(last_id, logger, pack_type, poly_id, rec)
     if 'T' in rec['Data_Fine']:
         rec['Data_Fine'] = rec["Data_Fine"].replace('T', ' ')
@@ -345,7 +371,15 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
     moscow_date = end_time + timedelta(seconds=delta.total_seconds())
     moscow_dateini = start_time + timedelta(seconds=delta.total_seconds())
     duration = end_time - start_time
-    # !!!!!!!!!!!!!!!!!!!!!!!!!! Уведомление о длительности !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    issue_dict = defaultdict(int)
+    if rec['ID'] - last_id[0] is not 1:
+        issue_dict['invalidDoubleRecordsNumeration'] += 1
+
+    if duration.seconds < 30:
+        issue_dict['durationBelowLimit'] += 1
+    elif duration.seconds > 120:
+        issue_dict['durationOverLimit'] += 1
+
     insert_query = f'INSERT INTO polycomm_suitcase (' \
         f'device,' \
         f'polycommid,' \
@@ -372,37 +406,33 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
         f'{duration.seconds},' \
         f'{rec["Ricetta"]}, {rec["Ricetta"]}, {False},' \
         f'\'{end_time}\', \'{start_time}\') RETURNING polycom_id;'
-    return insert_query
+    return insert_query, issue_dict
 
 
-async def check_ids_increment(last_id, logger, pack_type, poly_id, rec):
+async def check_ids_increment(last_id, logger,  poly_id, rec):
+    pack_type  = 1
     if last_id is not None:
-        if rec['ID'] == last_id[0] + 1:
-            if rec["ID_Totale"] == last_id[1] + 1:
+        if rec["ID"] - last_id[0] == 1:
+            if rec["ID_Totale"] - last_id[1] == 1 and rec["ID_Parzile"] - last_id[2]==0:
                 pack_type = 1
-
-            elif rec["ID_Parziale"] == last_id[2] + 1:
+            elif rec["ID_Parzile"] - last_id[2] == 1 and rec["ID_Totale"] - last_id[1]==0:
                 pack_type = 2
-            else:
-                if pack_type == 1:
-                    '''!!!!!!!Сделать уведомление !!!!'''
-                    logger.error(f'total_id currupted counter device =\'{poly_id}\' ')
-                elif pack_type == 2:
-                    '''!!!!!!!Сделать уведомление !!!!'''
-                    logger.error(f'partial_id currupted counter device =\'{poly_id}\'')
-
-                # return web.json_response(getResponseJSON(6, 'total_id or partal_id don`t incremented',
-                #                                         {}), status=RESPONSE_STATUS)
-        else:
-            '''!!!!!!!Сделать уведомление !!!!'''
+            elif rec["ID_Totale"] - last_id[1] is not 1 or 0:
+                pack_type = 888
+                logger.error(f'total_id currupted counter device =\'{poly_id}\' ')
+            elif rec["ID_Parzile"] - last_id[2] is not 1 or 0:
+                pack_type = 999
+                logger.error(f'partial_id currupted counter device =\'{poly_id}\'')
+        elif rec["ID"] - last_id[0] is not 1:
+            pack_type = 777
             logger.error(f'last_id wasn`t incremented.Some trouble on device =\'{poly_id}\'')
-            # return web.json_response(getResponseJSON(6, 'last_id wasn`t incremented',
-            #                                        {}), status=RESPONSE_STATUS)
     else:
-        logger.info(f'First time add from machine id={poly_id}')
+        logger.error(f'last_id wasn`t incremented.Some trouble on device =\'{poly_id}\'')
+
     return pack_type
 
-async def set_polycomm_issue( conn, type_issue,device, total, date, local_date, duration,suitcase):
+
+async def set_polycomm_issue( conn, type_issue, suitcase, logger):
     """
     Формирование уведомления PoycommIssue
     :param id:
@@ -410,22 +440,26 @@ async def set_polycomm_issue( conn, type_issue,device, total, date, local_date, 
     :param type_issue:
     :return:
     """
-    insert_query  = f'INSERT INTO polycommissue SET (localdate, device, total, suitcase, duration, type, date, callback) ' \
-        f'VALUES (' \
-        f'\'{local_date}\',' \
-        f'{device},' \
-        f'{total},' \
-        f'{suitcase},' \
-        f'{duration},' \
-        f'{type_issue},' \
-        f'\'{date}\',' \
-        f'{False})  RETURNING polycommissue_id;'
+    try:
+        last_row = await conn.fetchrow(f'SELECT * FROM polycomm_suitcase WHERE polycommid={suitcase};')
+        type_issue_id = await conn.fetchval(f'SELECT polycomm_issue_type_id FROM polycomm_issue_type WHERE code=\'{type_issue}\' ;')
+        insert_query  = f'INSERT INTO polycommissue SET (localdate, device, total, suitcase, duration, type, date, callback) ' \
+            f'VALUES (' \
+            f'\'{last_row["local_date"]}\',' \
+            f'{last_row["device"]},' \
+            f'{last_row["totalid"]},' \
+            f'{suitcase},' \
+            f'{last_row["duration"]},' \
+            f'{type_issue_id},' \
+            f'\'{last_row["date"]}\',' \
+            f'{False})  RETURNING polycommissue_id;'
 
 
-    result =await conn.fetchval(insert_query)
+        result = await conn.fetchval(insert_query)
 
-    if not result:
-        pass
+        return result
+    except Exception as exc:
+        logger.error(f'Cannot insert issue to data table  from device id={last_row["device"]}: {exc}')
 
 
 async def get_last_ids(id, name, conn):
