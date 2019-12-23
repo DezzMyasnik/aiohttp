@@ -1,17 +1,15 @@
-import asyncio
-from aiohttp import web
-from routes import setup_routes
-from routes import *
-from views import *
 import argparse
-import asyncpg
 import logging
 from logging.handlers import RotatingFileHandler
+
+import asyncpg
+
+from views import *
 
 
 def make_app(logger):
     app = web.Application()
-    #setup_routes(app)
+    # setup_routes(app)
     app.on_startup.append(on_start)
     app.on_shutdown.append(on_shutdown)
     app['logger'] = logger
@@ -23,9 +21,9 @@ def make_app(logger):
 async def on_start(app):
     try:
         app[POOL_NAME] = await asyncpg.create_pool(host=DB_HOST, port=DB_PORT, user=DB_USER,
-                                                password= DB_PASSWORD, database=DB_DATABASE)
-        #app[POOL_RED_NAME] = await asyncpg.create_pool(host=DB_HOST_RED, port=DB_PORT_RED, user=DB_USER_RED,
-         #                                       password= DB_PASSWORD_RED, database=DB_DATABASE_RED)
+                                                   password=DB_PASSWORD, database=DB_DATABASE)
+        # app[POOL_RED_NAME] = await asyncpg.create_pool(host=DB_HOST_RED, port=DB_PORT_RED, user=DB_USER_RED,
+        #                                       password= DB_PASSWORD_RED, database=DB_DATABASE_RED)
     except Exception as ex:
         print('Error connecting to the database! Message: ' + str(ex))
 
@@ -33,10 +31,9 @@ async def on_start(app):
 async def on_shutdown(app):
     try:
         await app[POOL_NAME].close()
-        #await app[POOL_RED_NAME].close()
+        # await app[POOL_RED_NAME].close()
     except Exception as exc:
         print('Error when disconnecting from the database! Message: ' + str(exc))
-
 
 
 if __name__ == '__main__':
@@ -49,7 +46,7 @@ if __name__ == '__main__':
     formatter.datefmt = FORMAT_DATE_TIME
     logger = logging.getLogger("Event log of polycommCollector module")
     logger.setLevel(logging.DEBUG)
-    handler = RotatingFileHandler(LOG_FILE_NAME,mode='a', maxBytes=10000000, backupCount=30)  # 10Mb
+    handler = RotatingFileHandler(LOG_FILE_NAME, mode='a', maxBytes=10000000, backupCount=30)  # 10Mb
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
