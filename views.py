@@ -324,10 +324,10 @@ async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
     elif  result_pack_type == 999:
         issue_dict['invalidDoubleRecordsNumeration'] += 1
         result_pack_type = 1
-
-    if duration.seconds < 30:
+    min_time, max_time = await get_max_min_duration(conn, logger)
+    if duration.seconds < min_time:
         issue_dict['durationBelowLimit'] += 1
-    elif duration.seconds >120:
+    elif duration.seconds > max_time:
         issue_dict['durationOverLimit'] += 1
 
     insert_query = f'INSERT INTO polycomm_suitcase (' \
@@ -389,10 +389,10 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
     issue_dict = defaultdict(int)
     if rec['ID'] - last_id[0] is not 1:
         issue_dict['invalidDoubleRecordsNumeration'] += 1
-
-    if duration.seconds < 30:
+    min_time, max_time = await get_max_min_duration(conn,logger)
+    if duration.seconds < min_time:
         issue_dict['durationBelowLimit'] += 1
-    elif duration.seconds > 120:
+    elif duration.seconds > max_time:
         issue_dict['durationOverLimit'] += 1
 
     insert_query = f'INSERT INTO polycomm_suitcase (' \
@@ -445,6 +445,20 @@ async def check_ids_increment(last_id, logger,  poly_id, rec):
         logger.error(f'last_id wasn`t incremented.Some trouble on device =\'{poly_id}\'')
 
     return pack_type
+
+async def get_max_min_duration(conn, logger):
+    '''
+    Процедура получения граничных значений длительностьей упаковок
+    :param conn: подключение к БД
+    :param logger: указатель на систему логгирования
+    :return:
+    '''
+    try:
+        min_time, max_time = 30, 120
+        min_time, max_time = await conn.fetchrow('SELECT suitcase_dur_min_thres, suitcase_dur_max_thres  FROM pnf_config;')
+    except Exception as exc:
+        logger.error(f'Cannot recive data from pnf_config table: {exc}')
+    return min_time, max_time
 
 
 async def set_polycomm_issue( conn, type_issue, suitcase, logger):
