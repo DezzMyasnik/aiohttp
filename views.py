@@ -11,6 +11,8 @@ def getResponseJSON(code, message, data):
     return response_obj
 
 routes = web.RouteTableDef()
+
+
 @routes.get('/state')
 async def chek_state_of_machine(request):
     """
@@ -40,8 +42,10 @@ async def chek_state_of_machine(request):
                                              status=RESPONSE_STATUS)
 
                 elif params["state"] is 2:
+                    #TODO уведомление об остановке службы на машине
                     pass
                 elif params["state"] is 1:
+                    #TODO уведомление о включении службы на машине
                     pass
 
     except Exception as exc:
@@ -97,8 +101,8 @@ async def check(request):
     except Exception as exc:
         logger.error('Исключение при обрабтке запросов check: ' + str(exc))
 
-@routes.get('/collectors')
 
+@routes.get('/collectors')
 async def collectors(request):
     '''
     GET-запрос на последний ID в базе по ID машины и таблице
@@ -123,9 +127,9 @@ async def collectors(request):
                         polycom_dev_id = await conn.fetchval(f'SELECT id FROM polycomm_device    '
                                                              f'WHERE code={params["id"]};')
                         if polycom_dev_id is None:
-                            '''
-                            !!!!сделать уведомление в дашборд о незарегистрированной машине
-                            '''
+
+                            #TODO!!!!сделать уведомление в дашборд о незарегистрированной машине
+
                             logger.error(f'Machine with serial number {params["id"]} trying to send data into DB')
                             return web.json_response(
                                 getResponseJSON(6, 'The Machine is not registered!!!', {}),
@@ -139,6 +143,7 @@ async def collectors(request):
                         logger.error('Error at conn.fetchval at collector function: ' + str(excc))
     except BaseException as ex:
         logger.error('Exeception from operate request from suitcase and alarm collector: ' + str(ex))
+
 
 @routes.post('/collectors')
 async def collector_post(request):
@@ -176,19 +181,15 @@ async def collector_post(request):
                             print(resp)
                             return resp
                     else:
-                        '''
-                         !!!!сделать уведомление в дашборд о незарегистрированной машине
-                        '''
+
+                         #TODO!!!!сделать уведомление в дашборд о незарегистрированной машине
+
                         logger.warning(f'Reciving data from unregistred machine id = {data["machineId"]}')
                         return web.json_response(getResponseJSON(3, 'Unregistred Machine ID', {}),
                                                  status=RESPONSE_STATUS)
 
-
-
     except BaseException as ex:
         logger.error('Exeception from operate request from suitcase and alarm collector: ' + str(ex))
-
-
 
 
 
@@ -205,8 +206,6 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
         if tb_name == 'Suitcase':
 
             for rec in records:
-
-
                 if 'Data_Fine' not in rec.keys():
                     insert_query, issue_dict = await create_insert_query_polycomm(conn, delta, logger, poly_id, rec)
                 else:
@@ -234,6 +233,7 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
                                                                  {}), status=RESPONSE_STATUS)
 
         elif tb_name == 'Allarmi':
+
             alarm_types = await conn.fetch(f'SELECT en,polycomm_alarm_type_id FROM polycomm_alarm_type;')
             alarms = dict(alarm_types)
             for rec in records:
@@ -244,23 +244,38 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
                     rec['Data'] = rec["Data"].replace('T', ' ')
                 localdate = datetime.fromisoformat(rec["Data"])
                 moscowdate = localdate + timedelta(seconds=delta.total_seconds())
-                insert_query = f'INSERT INTO polycommalarm(' \
-                    f'device,' \
-                    f'polycomid,' \
-                    f'date,' \
-                    f'message,' \
-                    f'new,' \
-                    f'total,' \
-                    f'alarmtype,' \
-                    f'localdate) VALUES(' \
-                    f'\'{poly_id}\',' \
-                    f'{rec["ID"]},' \
-                    f'\'{moscowdate}\',' \
-                    f'{rec["Messaggio"]},' \
-                    f'{rec["New"]},' \
-                    f'{rec["Total_Suitcase"]},' \
-                    f'{alarms[rec["Messaggio"]]}, ' \
-                    f'\'{localdate}\') RETURNING polycommalarm_id;'
+                if 'Total_Suitcase' in rec.keys():
+                    insert_query = f'INSERT INTO polycommalarm(' \
+                        f'device,' \
+                        f'polycomid,' \
+                        f'date,' \
+                        f'message,' \
+                        f'new,' \
+                        f'total,' \
+                        f'alarmtype,' \
+                        f'localdate) VALUES(' \
+                        f'\'{poly_id}\',' \
+                        f'{rec["ID"]},' \
+                        f'\'{moscowdate}\',' \
+                        f'{rec["Messaggio"]},' \
+                        f'{rec["New"]},' \
+                        f'{rec["Total_Suitcase"]},' \
+                        f'{alarms[rec["Messaggio"]]}, ' \
+                        f'\'{localdate}\') RETURNING polycommalarm_id;'
+                else:
+                    insert_query = f'INSERT INTO polycommalarm(' \
+                        f'device,' \
+                        f'polycomid,' \
+                        f'date,' \
+                        f'message,' \
+                        f'alarmtype,' \
+                        f'localdate) VALUES(' \
+                        f'\'{poly_id}\',' \
+                        f'{rec["ID"]},' \
+                        f'\'{moscowdate}\',' \
+                        f'{rec["Messaggio"]},' \
+                        f'{alarms[rec["Messaggio"]]}, ' \
+                        f'\'{localdate}\') RETURNING polycommalarm_id;'
 
                 polycomm_alarm_id = await conn.fetchval(insert_query)
                 if polycomm_alarm_id is not None:
@@ -361,7 +376,7 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
 
     last_id = await conn.fetchrow(f'SELECT polycommid, totalid, partialid FROM polycomm_suitcase '
                                   f'WHERE device =\'{poly_id}\' ORDER BY polycommid DESC LIMIT 1;')
-    #Нарушение сквозной нумерации упаковок
+
     #pack_type = await check_ids_increment(last_id, logger, pack_type, poly_id, rec)
     if 'T' in rec['Data_Fine']:
         rec['Data_Fine'] = rec["Data_Fine"].replace('T', ' ')
