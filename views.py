@@ -243,7 +243,7 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
                         getResponseJSON(0, 'Request successfully processed', {}),
                         status=RESPONSE_STATUS)
                 else:
-                    logger.info('22 Suitcase wasn`t inserted')
+                    logger.info('22a Suitcase wasn`t inserted')
                     return web.json_response(getResponseJSON(6, 'Could not add suitcase to DB',
                                                              {}), status=RESPONSE_STATUS)
 
@@ -352,7 +352,7 @@ async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
         issue_dict['durationBelowLimit'] += 1
     elif duration.seconds > max_time:
         issue_dict['durationOverLimit'] += 1
-    logger.info(f'{issue_dict}')
+    #logger.info(f'{issue_dict}')
     insert_query = f'INSERT INTO polycomm_suitcase (' \
         f'device,' \
         f'polycommid,' \
@@ -405,8 +405,8 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
     if 'T' in rec['Data_Fine']:
         rec['Data_Fine'] = rec["Data_Fine"].replace('T', ' ')
         rec['Data_ini'] = rec["Data_ini"].replace('T', ' ')
-    start_time = datetime.fromisoformat(rec["Data_ini"])
-    end_time = datetime.fromisoformat(rec["Data_Fine"])
+    start_time = datetime.strptime(rec["Data_ini"],FORMAT_DATE_TIME)
+    end_time = datetime.strptime(rec["Data_Fine"],FORMAT_DATE_TIME)
     moscow_date = end_time + timedelta(seconds=delta.total_seconds())
     moscow_dateini = start_time + timedelta(seconds=delta.total_seconds())
     duration = end_time - start_time
@@ -458,10 +458,10 @@ async def check_ids_increment(last_id, logger,  poly_id, rec):
                 pack_type = 2
             elif rec["ID_Totale"] - last_id[1] is not 1 or 0:
                 pack_type = 888
-                logger.error(f'total_id currupted counter device =\'{poly_id}\' ')
+                logger.error(f'30 total_id currupted counter device =\'{poly_id}\' ')
             elif rec["ID_Parziale"] - last_id[2] is not 1 or 0:
                 pack_type = 999
-                logger.error(f'partial_id currupted counter device =\'{poly_id}\'')
+                logger.error(f'31 partial_id currupted counter device =\'{poly_id}\'')
         elif rec["ID"] - last_id[0] is not 1:
             pack_type = 777
             logger.error(f'26 last_id wasn`t incremented.Some trouble on device =\'{poly_id}\' {pack_type}')
@@ -530,10 +530,10 @@ async def get_last_ids(id, name, conn):
             last_id = {'polycommid': 0, 'totalid': 0, 'partialid': 0}
 
     elif name == 'Allarmi':
-        last_id = await conn.fetchrow(f'SELECT polycommid, total FROM polycommalarm '
+        last_id = await conn.fetchrow(f'SELECT polycommid FROM polycommalarm '
                                       f'WHERE device =\'{id}\' ORDER BY polycommid DESC LIMIT 1;')
         if not last_id:
-            last_id = {'polycommid':0, 'total':0}
+            last_id = {'polycommid':0}
 
 
 
