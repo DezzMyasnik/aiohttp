@@ -32,7 +32,7 @@ async def chek_state_of_machine(request):
 
         async with pool.acquire() as conn:
             async with conn.transaction():
-                if params["state"] is 3:
+                if params["stateval"] is 3:
                     """ Last seen of device"""
                     await conn.execute(f'UPDATE polycomm_device SET '
                                        f'last_query_tm={datetime.strptime(datetime.now(),FORMAT_DATE_TIME)} '
@@ -42,10 +42,13 @@ async def chek_state_of_machine(request):
                                              status=RESPONSE_STATUS)
 
                 elif params["state"] is 2:
-                    #TODO уведомление об остановке службы на машине
+                    logger.info(f'Service on machine {params["id"]} was stopped')
+
                     pass
                 elif params["state"] is 1:
-                    #TODO уведомление о включении службы на машине
+                    logger.info(f'Service on machine {params["id"]} was started')
+
+
                     pass
 
     except Exception as exc:
@@ -455,7 +458,7 @@ async def get_max_min_duration(conn, logger):
     '''
     try:
         min_time, max_time = 30, 120
-        min_time, max_time = await conn.fetchrow('SELECT suitcase_dur_min_thres, suitcase_dur_max_thres  FROM pnf_config;')
+        min_time, max_time = await conn.fetchrow('SELECT suitcase_dur_min_thres, suitcase_dur_max_thres  FROM pnf_config WHERE pnf_config_id=1;')
     except Exception as exc:
         logger.error(f'Cannot recive data from pnf_config table: {exc}')
     return min_time, max_time

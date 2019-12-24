@@ -9,19 +9,20 @@ CURRENT_TIMEZONE = 'Europe/Moscow'
 
 FORMAT_DATE = '%d.%m.%Y'
 FORMAT_DATE_TIME = '%Y-%m-%d %H:%M:%S'
-
+"""
 DB_HOST = 'localhost'
 DB_PORT = '5432'
 DB_DATABASE = 'control_db'
 DB_USER = 'user_ctrl'
 DB_PASSWORD = 'Fdeolgn^4dg'
 """
+
 DB_HOST = 'localhost'
 DB_PORT = '5432'
 DB_DATABASE = 'postgres'
 DB_USER = 'postgres'
 DB_PASSWORD = '123456'
-"""
+
 """
 DB_HOST = '192.168.200.115'
 DB_PORT = '5432'
