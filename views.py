@@ -25,7 +25,7 @@ async def chek_state_of_machine(request):
         logger = request.app['logger']
         pool = request.app[POOL_NAME]
         params = request.rel_url.query
-        logger.info(f'1. Status of device = {params["id"]} is {params["stateval"]}')
+        #logger.info(f'1. Status of device = {params["id"]} is {params["stateval"]}')
         if pool is None:
             logger.error('2. No connection to the database')
             return web.json_response(getResponseJSON(5, 'No connection to the database', {}),
@@ -33,35 +33,66 @@ async def chek_state_of_machine(request):
 
         async with pool.acquire() as conn:
             async with conn.transaction():
-                if params["stateval"] is '3':
-                    """ Last seen of device"""
+                polycom_dev_id = await conn.fetchval(f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
+                if polycom_dev_id:
                     update_query = f'UPDATE timestamps SET ' \
-                                   f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\' '\
-                                   f'WHERE devicecode=\'{params["id"]}\';'
+                        f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', service_status_type=' \
+                        f'{params["stateval"]} ' \
+                        f'WHERE devicecode=\'{params["id"]}\';'
+
                     await conn.execute(update_query)
-                    logger.info(f'3.Machine {params["id"]} is on air')
-                    return web.json_response(getResponseJSON(0, 'Request successfully processed', {'stateval':"ok"}),
-                                             status=RESPONSE_STATUS)
+                    if params["stateval"] is '3':
+                        """ Last seen of device"""
+                    #logger.info(f'3. Machine {params["id"]} is on air')
+                        return web.json_response(getResponseJSON(0, 'Request successfully processed', {'stateval':"ok"}),
+                                                 status=RESPONSE_STATUS)
 
-                elif params["stateval"] is '2':
-                    logger.info(f'4. Service on machine {params["id"]} was stopped')
-                    return web.json_response(getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
-                                             status=RESPONSE_STATUS)
+                    elif params["stateval"] is '2':
+                        message = f'The Unit on machine {params["id"]} is turned off'
+                        messenger_id = await send_message_to_bot(conn, message, polycom_dev_id)
+                        if messenger_id:
+                            logger.info(f'4. Service on machine {params["id"]} was stopped')
+                            return web.json_response(getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                                 status=RESPONSE_STATUS)
+                        else:
+                            logger.info(f'4. Service on machine {params["id"]} was stopped, but a message was not sent to the bot')
+                            return web.json_response(
+                                getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                status=RESPONSE_STATUS)
 
 
-                elif params["stateval"] is '1':
-                    logger.info(f'5. Service on machine {params["id"]} was started')
-                    return web.json_response(getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
-                                             status=RESPONSE_STATUS)
 
-
-
-
-
+                    elif params["stateval"] is '1':
+                        message = f'Service on machine {params["id"]} is turned on'
+                        messenger_id = await send_message_to_bot(conn, message, polycom_dev_id)
+                        if messenger_id:
+                            logger.info(f'5. {message}')
+                            return web.json_response(getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                                 status=RESPONSE_STATUS)
+                        else:
+                            logger.info(f'4. {message}, '
+                                        f'but a message was not sent to the bot')
+                            return web.json_response(
+                                getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                status=RESPONSE_STATUS)
 
     except Exception as exc:
-        logger.error(f'6. Some trouble in check_state procedure {exc}')
+        logger.error(f'6. Some trouble in check_state procedure: {exc}')
 
+
+async def send_message_to_bot(conn, message, polycom_dev_id):
+    """
+    Отправка сообщения в бот
+    :param conn:
+    :param message: текст сообщения
+    :param polycom_dev_id: id из polycomm_device
+    :return:
+    """
+
+    insert_query = f'INSERT INTO messenger (device, body) VALUES ({polycom_dev_id}, ' \
+        f'\'{message}\') RETURNING messenger_id;'
+    messenger_id = await conn.fetchval(insert_query)
+    return messenger_id
 
 
 @routes.get('/collectors/check')
@@ -94,8 +125,10 @@ async def check(request):
 
                         elif check == True and params['status'] is '0':
                             '''
-                            Обновляем статус машины как выключенной... отправляем на амшину флаг запрета отправки данных
+                            Обновляем статус машины как выключенной... отправляем на машину флаг запрета отправки данных
                             '''
+                            message = f'Disable to send any data from machine id = {params["id"]}'
+                            await send_message_to_bot(conn,message,  )
                             await conn.execute(f'UPDATE polycomm_device SET enabled=false WHERE code={params["id"]};')
                             logger.error(f'9. Disable to send any data from machine id = {params["id"]}')
                             print(f'Disable to send any data from machine id = {params["id"]})')
