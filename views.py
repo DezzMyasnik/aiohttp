@@ -98,7 +98,7 @@ async def send_message_to_bot(conn, message, polycom_dev_id):
 @routes.get('/collectors/check')
 async def check(request):
     """
-    проверка статтуса машины
+    проверка статуса машины
     :param request: ?id={int}status={int}
     :return: {status:True or False}
     http://develop.db.packandfly.ru:8071/collectors/check?id=2812&status=1 ++++++
@@ -117,6 +117,8 @@ async def check(request):
 
                         check = await conn.fetchval(f'SELECT enabled FROM polycomm_device    '
                                                              f'WHERE code={params["id"] } ;')
+                        polycom_dev_id = await conn.fetchval(
+                            f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
                         if check == True and params['status'] is "1":
                             #logger.info("All valid, ready to recive data")
 
@@ -127,16 +129,20 @@ async def check(request):
                             '''
                             Обновляем статус машины как выключенной... отправляем на машину флаг запрета отправки данных
                             '''
-                            message = f'Disable to send any data from machine id = {params["id"]}'
-                            await send_message_to_bot(conn,message,  )
                             await conn.execute(f'UPDATE polycomm_device SET enabled=false WHERE code={params["id"]};')
+
+                            message = f'Disable to send any data from machine {params["id"]}. WARNING: ' \
+                                      f'Database file spoofing possible!!!'
+                            await send_message_to_bot(conn, message, polycom_dev_id)
+
                             logger.error(f'9. Disable to send any data from machine id = {params["id"]}')
-                            print(f'Disable to send any data from machine id = {params["id"]})')
+
                             return web.json_response(
                                 getResponseJSON(3, 'Stop to send any data', {'status': False}),
                                 status=RESPONSE_STATUS)
 
                         elif check == False:
+
                             logger.error(f'10. Disable to send any data from machine id = {params["id"]}')
                             return web.json_response(
                                 getResponseJSON(3, 'Stop to send any data', {'status': False}),
@@ -144,7 +150,7 @@ async def check(request):
 
 
     except Exception as exc:
-        logger.error('11. Исключение при обрабтке запросов check: ' + str(exc))
+        logger.error(f'11. Some trouble in procedure check response: {exc}')
 
 
 @routes.get('/collectors')
@@ -171,21 +177,27 @@ async def collectors(request):
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     try:
-                        #logger.error(f'1')
-                        polycom_dev_id = await conn.fetchval(f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
-                        #logger.error(f'2')
-                        if polycom_dev_id is None:
+                        if params:
+                            #logger.error(f'1')
+                            polycom_dev_id = await conn.fetchval(f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
+                            #logger.error(f'2')
+                            if polycom_dev_id is None:
 
-                            #TODO!!!!сделать уведомление в дашборд о незарегистрированной машине
 
-                            logger.error(f'13. Machine with serial number {params["id"]} trying to send data into DB')
-                            return web.json_response(
-                                getResponseJSON(6, 'The Machine is not registered!!!', {}),
-                                status=RESPONSE_STATUS)
+                                message = f'Machine with serial number {params["id"]} trying to send data into DB'
+                                await send_message_to_bot(conn, message, polycom_dev_id)
+                                logger.error(f'13. Machine with serial number {params["id"]} trying to send data into DB')
+                                return web.json_response(
+                                    getResponseJSON(6, 'The Machine is not registered!!!', {}),
+                                    status=RESPONSE_STATUS)
+                            else:
+                                last_id = await get_last_ids(polycom_dev_id, params['tb_name'], conn)
+                                return web.json_response(
+                                    getResponseJSON(0, 'Request successfully processed', dict(last_id)),
+                                    status=RESPONSE_STATUS)
                         else:
-                            last_id = await get_last_ids(polycom_dev_id, params['tb_name'], conn)
                             return web.json_response(
-                                getResponseJSON(0, 'Request successfully processed', dict(last_id)),
+                                getResponseJSON(0, 'All OK, server is redy!!!', {}),
                                 status=RESPONSE_STATUS)
                     except Exception as excc:
                         logger.error('14. Error at conn.fetchval at collector function: ' + str(excc))
