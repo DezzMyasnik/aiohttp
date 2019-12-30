@@ -70,8 +70,7 @@ async def chek_state_of_machine(request):
                             return web.json_response(getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
                                                  status=RESPONSE_STATUS)
                         else:
-                            logger.info(f'4. {message}, '
-                                        f'but a message was not sent to the bot')
+                            logger.info(f'4. {message}, but a message was not sent to the bot')
                             return web.json_response(
                                 getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
                                 status=RESPONSE_STATUS)
@@ -182,10 +181,8 @@ async def collectors(request):
                             polycom_dev_id = await conn.fetchval(f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
                             #logger.error(f'2')
                             if polycom_dev_id is None:
-
-
                                 message = f'Machine with serial number {params["id"]} trying to send data into DB'
-                                await send_message_to_bot(conn, message, polycom_dev_id)
+                                await send_message_to_bot(conn, message, 0)
                                 logger.error(f'13. Machine with serial number {params["id"]} trying to send data into DB')
                                 return web.json_response(
                                     getResponseJSON(6, 'The Machine is not registered!!!', {}),
@@ -230,7 +227,7 @@ async def collector_post(request):
                     city_timezone = await conn.fetchval(f'SELECT timezone FROM pnf_city WHERE pnf_city_id = {polycom_dev_id["city"]};')
 
                     tz = await conn.fetchval(f'SELECT code FROM pnf_timezone WHERE id = {city_timezone};')
-                    if polycom_dev_id['id'] is not None:
+                    if polycom_dev_id['id']:
                         tb_name = data['dataType']
 
                         records = data['records']
@@ -239,12 +236,14 @@ async def collector_post(request):
                             await send_data_to_big_db(polycom_dev_id['id'], tb_name, records, conn, request, tz)
 
                     else:
-                        #TODO!!!!сделать уведомление в дашборд о незарегистрированной машине
-                        logger.warning(f'18 Reciving data from unregistred machine id = {data["machineId"]}')
+                        message = f'Machine with serial number {data["machineId"]} trying to send data into DB'
+                        await send_message_to_bot(conn, message, 0)
+
+                        logger.warning(f'18. Reciving data from unregistred machine id = {data["machineId"]}')
                         return web.json_response(getResponseJSON(3, 'Unregistred Machine ID', {}),
                                                  status=RESPONSE_STATUS)
     except Exception as ex:
-        logger.error('19 Exeception from post request to big DB ' + str(ex))
+        logger.error(f'19 Exeception from post request to big DB {ex}')
 
 
 
@@ -290,7 +289,7 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
     elif tb_name == 'Allarmi':
         try:
             #logger.error('Alarm enter')
-            alarm_types = await conn.fetch(f'SELECT en,polycomm_alarm_type_id FROM polycomm_alarm_type;')
+            alarm_types = await conn.fetch(f'SELECT en, polycomm_alarm_type_id FROM polycomm_alarm_type;')
             alarms = dict(alarm_types)
             for rec in records:
                 await insert_alarm_data(alarms, conn, delta, logger, poly_id, rec)
@@ -326,20 +325,23 @@ async def insert_alarm_data(alarms, conn, delta, logger, poly_id, rec):
             f'{alarms[rec["Messaggio"]]}, ' \
             f'\'{localdate}\') RETURNING polycommalarm_id;'
     else:
+        #print(al[rec["Messaggio"]])
         insert_query = f'INSERT INTO polycommalarm (' \
             f'device,' \
             f'polycommid,' \
             f'date,' \
             f'message,' \
+            f'alarmtype,' \
             f'localdate) VALUES (' \
             f'\'{poly_id}\',' \
             f'{rec["ID"]},' \
             f'\'{moscowdate}\',' \
             f'\'{rec["Messaggio"]}\',' \
+            f'{alarms[rec["Messaggio"]]}, ' \
             f'\'{localdate}\') RETURNING polycommalarm_id;'
-    # print(insert_query)
+    #print(insert_query)
     # f'alarmtype,' \  #f'{alarms[rec["Messaggio"]]}, '
-    # TODO необходимо разобраться с типом алармов новой базе
+
     polycomm_alarm_id = await conn.fetchval(insert_query)
     # print(polycomm_alarm_id)
     if polycomm_alarm_id is not None:
