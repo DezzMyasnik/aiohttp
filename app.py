@@ -46,7 +46,7 @@ if __name__ == '__main__':
     formatter.datefmt = FORMAT_DATE_TIME
     logger = logging.getLogger("Event log of polycommCollector module")
     logger.setLevel(logging.DEBUG)
-    handler = RotatingFileHandler(LOG_FILE_NAME, mode='a', maxBytes=10000000, backupCount=30)  # 10Mb
+    handler = RotatingFileHandler(LOG_FILE_NAME, mode='a', maxBytes=10000000, backupCount=30,encoding='utf-8')  # 10Mb
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
