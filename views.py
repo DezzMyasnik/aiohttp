@@ -33,16 +33,21 @@ async def get_db_apss(request):
     """
     try:
         logger = request.app['logger']
+        logger.info('Enter to db_pass')
         pool = request.app[POOL_NAME]
+        logger.info('Get pool')
         params = request.rel_url.query
+        logger.info(f'get params {params}')
         if pool is None:
             logger.error('2. No connection to the database')
             return web.json_response(getResponseJSON(5, 'No connection to the database', {}),
                                      status=RESPONSE_STATUS)
         async with pool.acquire() as conn:
             async with conn.transaction():
+
                 db_pass = await conn.fetchval(f'SELECT db_pass FROM polycomm_device WHERE code={params["id"]};')
                 if db_pass:
+                    logger.info(f'get pass {db_pass}')
                     return web.json_response(getResponseJSON(0, 'Request successfully processed', {'db_pass': db_pass}),
                              status=RESPONSE_STATUS)
                 else:
@@ -234,21 +239,29 @@ async def check(request):
             async with pool.acquire() as conn:
                 async  with conn.transaction():
 
-                        check = await conn.fetchval(f'SELECT enabled FROM polycomm_device    '
-                                                             f'WHERE code={params["id"] } ;')
+                        #check = await conn.fetchval(f'SELECT enabled FROM polycomm_device    '
+                        #                                   f'WHERE code={params["id"] } ;')
+                        select_query = f'SELECT service_status_type FROM timestamps WHERE devicecode=\'{params["id"]}\';'
+                        #print(select_query)
+                        check = await conn.fetchval(select_query)
                         polycom_dev_id = await conn.fetchval(
                             f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
-                        if check == True and params['status'] is "1":
+                        if check is not 0 and params['status'] is "1":
                             #logger.info("All valid, ready to recive data")
 
                             return web.json_response(getResponseJSON(0, 'Request successfully processed', {'status': True}),
                                                     status=RESPONSE_STATUS)
 
-                        elif check == True and params['status'] is '0':
+                        elif check is not 0 and params['status'] is '0':
                             '''
                             Обновляем статус машины как выключенной... отправляем на машину флаг запрета отправки данных
                             '''
-                            await conn.execute(f'UPDATE polycomm_device SET enabled=false WHERE code={params["id"]};')
+                            update_query = f'UPDATE timestamps SET ' \
+                                f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', ' \
+                                f'service_status_type=0 ' \
+                                f'WHERE devicecode=\'{params["id"]}\';'
+                            await conn.execute(update_query)
+                            #await conn.execute(f'UPDATE polycomm_device SET enabled=false WHERE code={params["id"]};')
 
                             message = f'Disable to send any data from machine {params["id"]}. WARNING: ' \
                                       f'Database file spoofing possible!!!'
@@ -260,7 +273,7 @@ async def check(request):
                                 getResponseJSON(3, 'Stop to send any data', {'status': False}),
                                 status=RESPONSE_STATUS)
 
-                        elif check == False:
+                        elif check is 0:
 
                             logger.error(f'10. Disable to send any data from machine id = {params["id"]}')
                             return web.json_response(
@@ -269,7 +282,7 @@ async def check(request):
 
 
     except Exception as exc:
-        logger.error(f'11. Some trouble in procedure check response: {exc}')
+        logger.exception(f'11. Some trouble in procedure check response: {exc}')
 
 
 @routes.get('/collectors')
