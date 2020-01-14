@@ -353,6 +353,7 @@ async def collector_post(request):
                 logger.warning('17 Empty JSON in request')
                 return web.json_response(getResponseJSON(3, 'Empty JSON in request', {}), status=RESPONSE_STATUS)
 
+
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     polycom_dev_id = await conn.fetchrow(f'SELECT id, city FROM polycomm_device '
@@ -417,18 +418,18 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
                     await set_polycomm_issue(conn=conn, type_issue=inner_keys, suitcase=keys_dict,
                                              logger=logger)
         except Exception as exc:
-            logger.error(f"22 Some trouble detected in insert suitcase procedure: {exc}")
+            logger.exception(f"22 Some trouble detected in insert suitcase procedure: {exc}")
 
     elif tb_name == 'Allarmi':
         try:
             #logger.error('Alarm enter')
             alarm_types = await conn.fetch(f'SELECT en, polycomm_alarm_type_id FROM polycomm_alarm_type;')
             alarms = dict(alarm_types)
-            for rec in records:
-                await insert_alarm_data(alarms, conn, delta, logger, poly_id, rec)
+            #for rec in records:
+            #    await insert_alarm_data(alarms, conn, delta, logger, poly_id, rec)
         except Exception as exc:
 
-            logger.error(f"25 Some trouble detected in insert alarm procedure: {exc}")
+            logger.exception(f"25 Some trouble detected in insert alarm procedure: {exc}")
 
 
 async def insert_alarm_data(alarms, conn, delta, logger, poly_id, rec):
@@ -493,30 +494,35 @@ async def insert_alarm_data(alarms, conn, delta, logger, poly_id, rec):
 
 
 async def insert_suitcase_data(conn, delta, logger, poly_id, rec):
-    if 'Data_Fine' not in rec.keys():
-        insert_query, issue_dict = await create_insert_query_polycomm(conn, delta, logger, poly_id, rec)
-    else:
-        insert_query, issue_dict = await create_insert_query_packfly(conn, delta, logger, poly_id, rec)
-    #print(insert_query)
-    polycomm_id = await conn.fetchval(insert_query)
+    try:
+        if 'Data_Fine' not in rec.keys():
+            insert_query, issue_dict = await create_insert_query_polycomm(conn, delta, logger, poly_id, rec)
+        else:
+            insert_query, issue_dict = await create_insert_query_packfly(conn, delta, logger, poly_id, rec)
+        logger.info(insert_query)
 
-    # logger.info(f'polycomm_id:{polycomm_id}')
-    if polycomm_id is not None:
-        update_query = f'UPDATE polycomm_suitcase SET id={polycomm_id} where polycom_id={polycomm_id};'
-        await conn.execute(update_query)
+        polycomm_id = await conn.fetchval(insert_query)
 
-        if VERBOSE == 3:
-            # logger.debug('request data: ' + str(data))
-            logger.info(
-                f'21 insert polycomsuitcase polycomm_id= {polycomm_id} from machine_id = {poly_id}')
-        return polycomm_id, issue_dict
-        #return web.json_response(
-        #    getResponseJSON(0, 'Request successfully processed', {}),
-         #   status=RESPONSE_STATUS)
-    else:
-        logger.info('22a Suitcase wasn`t inserted')
-        return web.json_response(getResponseJSON(6, 'Could not add suitcase to DB',
-                                                 {}), status=RESPONSE_STATUS)
+        logger.info(f'polycomm_id:{polycomm_id}')
+        if polycomm_id:
+            update_query = f'UPDATE polycomm_suitcase SET id={polycomm_id} where polycom_id={polycomm_id};'
+            logger.info(update_query)
+            await conn.execute(update_query)
+
+            if VERBOSE == 3:
+                # logger.debug('request data: ' + str(data))
+                logger.info(
+                    f'21 insert polycomsuitcase polycom_id= {polycomm_id} from machine_id = {poly_id}')
+            return polycomm_id, issue_dict
+            #return web.json_response(
+            #    getResponseJSON(0, 'Request successfully processed', {}),
+             #   status=RESPONSE_STATUS)
+        else:
+            logger.info('22a Suitcase wasn`t inserted')
+            return web.json_response(getResponseJSON(6, 'Could not add suitcase to DB',
+                                                     {}), status=RESPONSE_STATUS)
+    except Exception:
+        logger.exception('trouble')
 
 
 async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
@@ -559,6 +565,7 @@ async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
     #logger.info(f'{issue_dict}')
     insert_query = f'INSERT INTO polycomm_suitcase (' \
         f'device,' \
+        f'device_id,' \
         f'polycommid,' \
         f'dateini,' \
         f'date,' \
@@ -575,6 +582,7 @@ async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
         f'local_date,' \
         f'dateini_local) VALUES (' \
         f'\'{poly_id}\',' \
+        f'{poly_id},' \
         f'{rec["ID"]},' \
         f'\'{moscow_dateini}\',' \
         f'\'{moscow_date}\',' \
@@ -605,25 +613,25 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
         last_id = await conn.fetchrow(f'SELECT polycommid, totalid, partialid FROM polycomm_suitcase '
                                       f'WHERE device =\'{poly_id}\' ORDER BY polycommid DESC LIMIT 1;')
 
-
-        #logger.info(f'Last_ID: {last_id}')
+        print(last_id)
+        logger.info(f'Last_ID: {last_id}')
         #pack_type = await check_ids_increment(last_id, logger, pack_type, poly_id, rec)
         if 'T' in rec['Data_Fine']:
             rec['Data_Fine'] = rec["Data_Fine"].replace('T', ' ')
             rec['Data_ini'] = rec["Data_ini"].replace('T', ' ')
-        start_time = datetime.strptime(rec["Data_ini"],FORMAT_DATE_TIME)
-        end_time = datetime.strptime(rec["Data_Fine"],FORMAT_DATE_TIME)
+        start_time = datetime.strptime(rec["Data_ini"], FORMAT_DATE_TIME)
+        end_time = datetime.strptime(rec["Data_Fine"], FORMAT_DATE_TIME)
         moscow_date = end_time + timedelta(seconds=delta.total_seconds())
         moscow_dateini = start_time + timedelta(seconds=delta.total_seconds())
         duration = end_time - start_time
         issue_dict = defaultdict(int)
         if not last_id:
-            last_id = (0,0,0)
+            last_id = (0, 0, 0)
 
         if rec['ID'] - last_id[0] is not 1:
             issue_dict['invalidRecordsNumeration'] += 1
 
-        min_time, max_time = await get_max_min_duration(conn,logger)
+        min_time, max_time = await get_max_min_duration(conn, logger)
         if duration.seconds < min_time:
             issue_dict['durationBelowLimit'] += 1
         elif duration.seconds > max_time:
@@ -631,6 +639,7 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
         if (rec["Ricetta"] is 0) :
             insert_query = f'INSERT INTO polycomm_suitcase (' \
                     f'device,' \
+                    f'device_id,' \
                     f'polycommid,' \
                     f'dateini,' \
                     f'date,' \
@@ -643,6 +652,7 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
                     f'local_date,' \
                     f'dateini_local) VALUES (' \
                     f'\'{poly_id}\',' \
+                    f'{poly_id},' \
                     f'{rec["ID"]},' \
                     f'\'{moscow_dateini}\',' \
                     f'\'{moscow_date}\',' \
@@ -656,6 +666,7 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
         else:
             insert_query = f'INSERT INTO polycomm_suitcase (' \
                     f'device,' \
+                    f'device_id,' \
                     f'polycommid,' \
                     f'dateini,' \
                     f'date,' \
@@ -670,6 +681,7 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
                     f'local_date,' \
                     f'dateini_local) VALUES (' \
                     f'\'{poly_id}\',' \
+                    f'{poly_id},' \
                     f'{rec["ID"]},' \
                     f'\'{moscow_dateini}\',' \
                     f'\'{moscow_date}\',' \
@@ -682,7 +694,7 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
                     f'\'{end_time}\', \'{start_time}\') RETURNING polycom_id;'
 
     except Exception as exc:
-        logger.error(f'25a \'{exc}\'')
+        logger.exception(f'25a \'{exc}\'')
 
     return insert_query, issue_dict
 
@@ -733,9 +745,9 @@ async def set_polycomm_issue( conn, type_issue, suitcase, logger):
     :return:
     """
     try:
-        select_query = f'SELECT * FROM polycomm_suitcase WHERE polycom_id={suitcase};'
-
-        last_row = await conn.fetchrow(select_query)
+        #select_query = f'SELECT * FROM polycomm_suitcase WHERE polycom_id={suitcase};'
+        logger.info(f'SELECT * FROM polycomm_suitcase WHERE polycom_id={suitcase};')
+        last_row = await conn.fetchrow(f'SELECT * FROM polycomm_suitcase WHERE polycom_id={suitcase};')
 
         if last_row:
             type_issue_id = await conn.fetchval(f'SELECT polycomm_issue_type_id FROM polycomm_issue_type WHERE code=\'{type_issue}\' ;')
@@ -754,7 +766,7 @@ async def set_polycomm_issue( conn, type_issue, suitcase, logger):
 
             return result
     except Exception as exc:
-        logger.error(f'29 Cannot insert issue to data table  from device id={last_row["device"]}: {exc}')
+        logger.exception(f'29 Cannot insert issue to data table  from device id={last_row["device"]}: {exc}')
 
 
 async def get_last_ids(id, name, conn):
