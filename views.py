@@ -1,8 +1,11 @@
-from aiohttp import web
-from settings import *
-from datetime import datetime, timedelta,tzinfo
 from collections import defaultdict
+from datetime import datetime, timedelta
+
 import pytz
+from aiohttp import web
+
+from settings import *
+
 
 def getResponseJSON(code, message, data):
     response_obj = {RESPONSE_CODE: code, RESPONSE_MESSAGE: message}
@@ -10,7 +13,9 @@ def getResponseJSON(code, message, data):
         response_obj[RESPONSE_DATA] = data
     return response_obj
 
+
 routes = web.RouteTableDef()
+
 
 @routes.get('/collectors/db')
 async def get_db_apss(request):
@@ -49,13 +54,12 @@ async def get_db_apss(request):
                 if db_pass:
                     logger.info(f'get pass {db_pass}')
                     return web.json_response(getResponseJSON(0, 'Request successfully processed', {'db_pass': db_pass}),
-                             status=RESPONSE_STATUS)
+                                             status=RESPONSE_STATUS)
                 else:
                     return web.json_response(getResponseJSON(12, 'Dont have any data', {'db_pass': None}),
-                             status=RESPONSE_STATUS)
+                                             status=RESPONSE_STATUS)
     except Exception as exc:
         logger.exception(f'2a. {exc}')
-
 
 
 @routes.get('/collectors/state')
@@ -70,7 +74,7 @@ async def chek_state_of_machine(request):
         logger = request.app['logger']
         pool = request.app[POOL_NAME]
         params = request.rel_url.query
-        #logger.info(f'1. Status of device = {params["id"]} is {params["stateval"]}')
+        # logger.info(f'1. Status of device = {params["id"]} is {params["stateval"]}')
         if pool is None:
             logger.error('2. No connection to the database')
             return web.json_response(getResponseJSON(5, 'No connection to the database', {}),
@@ -89,9 +93,10 @@ async def chek_state_of_machine(request):
                             f'WHERE devicecode=\'{params["id"]}\';'
 
                         await conn.execute(update_query)
-                        #logger.info(f'3. Machine {params["id"]} is on air')
-                        return web.json_response(getResponseJSON(0, 'Request successfully processed', {'stateval':"ok"}),
-                                                 status=RESPONSE_STATUS)
+                        # logger.info(f'3. Machine {params["id"]} is on air')
+                        return web.json_response(
+                            getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                            status=RESPONSE_STATUS)
 
                     elif params["stateval"] is '2':
                         update_query = f'UPDATE timestamps SET ' \
@@ -104,10 +109,12 @@ async def chek_state_of_machine(request):
                         messenger_id = await send_message_to_bot(conn, message, polycom_dev_id)
                         if messenger_id:
                             logger.info(f'4. Service on machine {params["id"]} is off')
-                            return web.json_response(getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
-                                                 status=RESPONSE_STATUS)
+                            return web.json_response(
+                                getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                status=RESPONSE_STATUS)
                         else:
-                            logger.info(f'4. Service on machine {params["id"]} was stopped, but a message was not sent to the bot')
+                            logger.info(f'4. Service on machine {params["id"]} was stopped, '
+                                        f'but a message was not sent to the bot')
                             return web.json_response(
                                 getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
                                 status=RESPONSE_STATUS)
@@ -125,8 +132,9 @@ async def chek_state_of_machine(request):
                         messenger_id = await send_message_to_bot(conn, message, polycom_dev_id)
                         if messenger_id:
                             logger.info(f'5. {message}')
-                            return web.json_response(getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
-                                                 status=RESPONSE_STATUS)
+                            return web.json_response(
+                                getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                status=RESPONSE_STATUS)
                         else:
                             logger.info(f'4. {message}, but a message was not sent to the bot')
                             return web.json_response(
@@ -178,7 +186,8 @@ async def chek_state_of_machine(request):
                                     f'service_status_type={params["stateval"]} ' \
                                     f'WHERE devicecode=\'{params["id"]}\';'
                                 await conn.execute(update_query)
-                                message = f'The service on machine {params["id"]} did not receive a password from the server'
+                                message = f'The service on machine {params["id"]} did not receive' \
+                                            f' a password from the server'
                                 messenger_id = await send_message_to_bot(conn, message, polycom_dev_id)
                                 if messenger_id:
                                     logger.warning(f'5b. {message}')
@@ -239,46 +248,46 @@ async def check(request):
             async with pool.acquire() as conn:
                 async  with conn.transaction():
 
-                        #check = await conn.fetchval(f'SELECT enabled FROM polycomm_device    '
-                        #                                   f'WHERE code={params["id"] } ;')
-                        select_query = f'SELECT service_status_type FROM timestamps WHERE devicecode=\'{params["id"]}\';'
-                        #print(select_query)
-                        check = await conn.fetchval(select_query)
-                        polycom_dev_id = await conn.fetchval(
-                            f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
-                        if check is not 0 and params['status'] is "1":
-                            #logger.info("All valid, ready to recive data")
+                    # check = await conn.fetchval(f'SELECT enabled FROM polycomm_device    '
+                    #                                   f'WHERE code={params["id"] } ;')
+                    select_query = f'SELECT service_status_type FROM timestamps WHERE devicecode=\'{params["id"]}\';'
+                    # print(select_query)
+                    check = await conn.fetchval(select_query)
+                    polycom_dev_id = await conn.fetchval(
+                        f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
+                    if check is not 0 and params['status'] is "1":
+                        # logger.info("All valid, ready to recive data")
 
-                            return web.json_response(getResponseJSON(0, 'Request successfully processed', {'status': True}),
-                                                    status=RESPONSE_STATUS)
+                        return web.json_response(getResponseJSON(0, 'Request successfully processed', {'status': True}),
+                                                 status=RESPONSE_STATUS)
 
-                        elif check is not 0 and params['status'] is '0':
-                            '''
-                            Обновляем статус машины как выключенной... отправляем на машину флаг запрета отправки данных
-                            '''
-                            update_query = f'UPDATE timestamps SET ' \
-                                f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', ' \
-                                f'service_status_type=0 ' \
-                                f'WHERE devicecode=\'{params["id"]}\';'
-                            await conn.execute(update_query)
-                            #await conn.execute(f'UPDATE polycomm_device SET enabled=false WHERE code={params["id"]};')
+                    elif check is not 0 and params['status'] is '0':
+                        '''
+                        Обновляем статус машины как выключенной... отправляем на машину флаг запрета отправки данных
+                        '''
+                        update_query = f'UPDATE timestamps SET ' \
+                            f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', ' \
+                            f'service_status_type=0 ' \
+                            f'WHERE devicecode=\'{params["id"]}\';'
+                        await conn.execute(update_query)
+                        # await conn.execute(f'UPDATE polycomm_device SET enabled=false WHERE code={params["id"]};')
 
-                            message = f'Disable to send any data from machine {params["id"]}. WARNING: ' \
-                                      f'Database file spoofing possible!!!'
-                            await send_message_to_bot(conn, message, polycom_dev_id)
+                        message = f'Disable to send any data from machine {params["id"]}. WARNING: ' \
+                            f'Database file spoofing possible!!!'
+                        await send_message_to_bot(conn, message, polycom_dev_id)
 
-                            logger.error(f'9. Disable to send any data from machine id = {params["id"]}')
+                        logger.error(f'9. Disable to send any data from machine id = {params["id"]}')
 
-                            return web.json_response(
-                                getResponseJSON(3, 'Stop to send any data', {'status': False}),
-                                status=RESPONSE_STATUS)
+                        return web.json_response(
+                            getResponseJSON(3, 'Stop to send any data', {'status': False}),
+                            status=RESPONSE_STATUS)
 
-                        elif check is 0:
+                    elif check is 0:
 
-                            logger.error(f'10. Disable to send any data from machine id = {params["id"]}')
-                            return web.json_response(
-                                getResponseJSON(3, 'Stop to send any data', {'status': False}),
-                                status=RESPONSE_STATUS)
+                        logger.error(f'10. Disable to send any data from machine id = {params["id"]}')
+                        return web.json_response(
+                            getResponseJSON(3, 'Stop to send any data', {'status': False}),
+                            status=RESPONSE_STATUS)
 
 
     except Exception as exc:
@@ -310,13 +319,15 @@ async def collectors(request):
                 async with conn.transaction():
                     try:
                         if params:
-                            #logger.error(f'1')
-                            polycom_dev_id = await conn.fetchval(f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
-                            #logger.error(f'2')
+                            # logger.error(f'1')
+                            polycom_dev_id = await conn.fetchval(
+                                f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
+                            # logger.error(f'2')
                             if polycom_dev_id is None:
                                 message = f'Machine with serial number {params["id"]} trying to send data into DB'
                                 await send_message_to_bot(conn, message, 0)
-                                logger.error(f'13. Machine with serial number {params["id"]} trying to send data into DB')
+                                logger.error(
+                                    f'13. Machine with serial number {params["id"]} trying to send data into DB')
                                 return web.json_response(
                                     getResponseJSON(6, 'The Machine is not registered!!!', {}),
                                     status=RESPONSE_STATUS)
@@ -353,37 +364,43 @@ async def collector_post(request):
                 logger.warning('17 Empty JSON in request')
                 return web.json_response(getResponseJSON(3, 'Empty JSON in request', {}), status=RESPONSE_STATUS)
 
+            polycom_dev_id, tz = await get_dev_id_and_tz(pool, logger, data)
 
             async with pool.acquire() as conn:
                 async with conn.transaction():
-                    polycom_dev_id = await conn.fetchrow(f'SELECT id, city FROM polycomm_device '
-                                                         f'WHERE code={data["machineId"]};')
-                    city_timezone = await conn.fetchval(f'SELECT timezone FROM pnf_city WHERE pnf_city_id = {polycom_dev_id["city"]};')
-
-                    tz = await conn.fetchval(f'SELECT code FROM pnf_timezone WHERE id = {city_timezone};')
                     if polycom_dev_id['id']:
                         tb_name = data['dataType']
-
                         records = data['records']
-
                         if records:
                             await send_data_to_big_db(polycom_dev_id['id'], tb_name, records, conn, request, tz)
-
-                    else:
-                        message = f'Machine with serial number {data["machineId"]} trying to send data into DB'
-                        await send_message_to_bot(conn, message, 0)
-
-                        logger.warning(f'18. Reciving data from unregistred machine id = {data["machineId"]}')
-                        return web.json_response(getResponseJSON(3, 'Unregistred Machine ID', {}),
-                                                 status=RESPONSE_STATUS)
     except Exception as ex:
         logger.error(f'19 Exeception from post request to big DB {ex}')
 
 
+async def get_dev_id_and_tz(pool, logger, data):
+    """
+    получаем занчения идентификатора машины в БД поликом, ее таймзону и
+    """
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            polycom_dev_id = await conn.fetchrow(f'SELECT id, city FROM polycomm_device '
+                                                 f'WHERE code={data["machineId"]};')
+            if not polycom_dev_id:
+                message = f'Machine with serial number {data["machineId"]} trying to send data into DB'
+                await send_message_to_bot(conn, message, 0)
+                logger.warning(f'18. Reciving data from unregistred machine id = {data["machineId"]}')
+                # return web.json_response(getResponseJSON(3, 'Unregistred Machine ID', {}),
+                #                        status=RESPONSE_STATUS)
+            else:
+                city_timezone = await conn.fetchval(
+                    f'SELECT timezone FROM pnf_city WHERE pnf_city_id = {polycom_dev_id["city"]};')
+
+                tz = await conn.fetchval(f'SELECT code FROM pnf_timezone WHERE id = {city_timezone};')
+                return polycom_dev_id, tz
+
 
 async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone):
     logger = request.app['logger']
-
 
     try:
         device_tz = pytz.timezone(timezone)
@@ -395,38 +412,31 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
         logger.error(f'20 Exception from calc delta : {exc}')
 
     records.sort(key=lambda x: x["ID"])
-    #print(len(records))
+
     if tb_name == 'Suitcase':
         try:
-            #logger.info('Suitcase enter')
             dict_of_issue_dict = {}
             for rec in records:
-
                 polycomm_id, issue_dict = await insert_suitcase_data(conn, delta, logger, poly_id, rec)
 
                 if issue_dict:
                     dict_of_issue_dict[polycomm_id] = issue_dict
 
-                    #for keys in issue_dict.keys():
-                    #    await set_polycomm_issue(conn=conn, type_issue=keys, suitcase=polycomm_id,
-                    #                             logger=logger)
-            #logger.info(f"22 Some trouble detected in insert suitcase procedure: {exc}")
-            for keys_dict in dict_of_issue_dict.keys():
-                #print(keys_dict)
-                for inner_keys in dict_of_issue_dict[keys_dict].keys():
-                    #print(inner_keys)
-                    await set_polycomm_issue(conn=conn, type_issue=inner_keys, suitcase=keys_dict,
-                                             logger=logger)
+                    for keys_dict in dict_of_issue_dict.keys():
+
+                        for inner_keys in dict_of_issue_dict[keys_dict].keys():
+                            await set_polycomm_issue(conn=conn, type_issue=inner_keys, suitcase=keys_dict,
+                                                    logger=logger)
         except Exception as exc:
             logger.exception(f"22 Some trouble detected in insert suitcase procedure: {exc}")
 
     elif tb_name == 'Allarmi':
         try:
-            #logger.error('Alarm enter')
+            # logger.error('Alarm enter')
             alarm_types = await conn.fetch(f'SELECT en, polycomm_alarm_type_id FROM polycomm_alarm_type;')
             alarms = dict(alarm_types)
-            #for rec in records:
-            #    await insert_alarm_data(alarms, conn, delta, logger, poly_id, rec)
+            for rec in records:
+                await insert_alarm_data(alarms, conn, delta, logger, poly_id, rec)
         except Exception as exc:
 
             logger.exception(f"25 Some trouble detected in insert alarm procedure: {exc}")
@@ -441,7 +451,7 @@ async def insert_alarm_data(alarms, conn, delta, logger, poly_id, rec):
     localdate = datetime.strptime(rec["Data"], FORMAT_DATE_TIME)
     moscowdate = localdate + timedelta(seconds=delta.total_seconds())
     if 'Total_Suitcase' in rec.keys():
-        insert_query = f'INSERT INTO polycommalarm(' \
+        insert_query = f'INSERT INTO polycommalarm(id,' \
             f'device,' \
             f'polycomid,' \
             f'date,' \
@@ -449,8 +459,8 @@ async def insert_alarm_data(alarms, conn, delta, logger, poly_id, rec):
             f'new,' \
             f'total,' \
             f'alarmtype,' \
-            f'localdate) VALUES(' \
-            f'\'{poly_id}\',' \
+            f'localdate) VALUES(1,' \
+            f'{poly_id},' \
             f'{rec["ID"]},' \
             f'\'{moscowdate}\',' \
             f'{rec["Messaggio"]},' \
@@ -459,26 +469,29 @@ async def insert_alarm_data(alarms, conn, delta, logger, poly_id, rec):
             f'{alarms[rec["Messaggio"]]}, ' \
             f'\'{localdate}\') RETURNING polycommalarm_id;'
     else:
-        #print(al[rec["Messaggio"]])
-        insert_query = f'INSERT INTO polycommalarm (' \
+        # print(al[rec["Messaggio"]])
+        insert_query = f'INSERT INTO polycommalarm (id,' \
             f'device,' \
             f'polycommid,' \
             f'date,' \
             f'message,' \
             f'alarmtype,' \
-            f'localdate) VALUES (' \
-            f'\'{poly_id}\',' \
+            f'localdate) VALUES (1,' \
+            f'{poly_id},' \
             f'{rec["ID"]},' \
             f'\'{moscowdate}\',' \
             f'\'{rec["Messaggio"]}\',' \
             f'{alarms[rec["Messaggio"]]}, ' \
             f'\'{localdate}\') RETURNING polycommalarm_id;'
-    #print(insert_query)
+    # print(insert_query)
     # f'alarmtype,' \  #f'{alarms[rec["Messaggio"]]}, '
 
     polycomm_alarm_id = await conn.fetchval(insert_query)
     # print(polycomm_alarm_id)
-    if polycomm_alarm_id is not None:
+    if polycomm_alarm_id:
+        update_query = f'UPDATE polycommalarm SET id={polycomm_alarm_id} where polycommalarm_id={polycomm_alarm_id};'
+        # logger.info(update_query)
+        await conn.execute(update_query)
         if VERBOSE == 3:
             # logger.debug('request data: ' + str(data))
             logger.info(
@@ -514,9 +527,9 @@ async def insert_suitcase_data(conn, delta, logger, poly_id, rec):
                 logger.info(
                     f'21 insert polycomsuitcase polycom_id= {polycomm_id} from machine_id = {poly_id}')
             return polycomm_id, issue_dict
-            #return web.json_response(
+            # return web.json_response(
             #    getResponseJSON(0, 'Request successfully processed', {}),
-             #   status=RESPONSE_STATUS)
+            #   status=RESPONSE_STATUS)
         else:
             logger.info('22a Suitcase wasn`t inserted')
             return web.json_response(getResponseJSON(6, 'Could not add suitcase to DB',
@@ -532,37 +545,41 @@ async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
 
     last_id = await conn.fetchrow(f'SELECT polycommid, totalid, partialid FROM polycomm_suitcase '
                                   f'WHERE device =\'{poly_id}\' ORDER BY polycommid DESC LIMIT 1;')
-    #logger.info(f'Last_ID: {last_id}')
+    # logger.info(f'Last_ID: {last_id}')
     result_pack_type = await check_ids_increment(last_id, logger, poly_id, rec)
-    #logger.info(f'pack_type: {result_pack_type}')
+    # logger.info(f'pack_type: {result_pack_type}')
     if 'T' in rec['Data']:
-        rec['Data'] = rec["Data"].replace('T', ' ')
-        rec['Data_ini'] = rec["Data_ini"].replace('T', ' ')
 
-    start_time = datetime.strptime(rec["Data_ini"], FORMAT_DATE_TIME)
-    end_time = datetime.strptime(rec["Data"], FORMAT_DATE_TIME)
+        rec['Data'] = rec["Data"].replace('T', ' ')[:rec["Data"].index('.')]
+        rec['Data_ini'] = rec["Data_ini"].replace('T', ' ')[:rec["Data_ini"].index('.')]
+
+
+    start_time = datetime.fromisoformat(rec["Data_ini"])
+    #start_time = datetime.strptime(rec["Data_ini"], FORMAT_DATE_TIME)
+    end_time =datetime.fromisoformat(rec["Data"])
+    #end_time = datetime.strptime(rec["Data"], FORMAT_DATE_TIME)
     moscow_date = end_time + timedelta(seconds=delta.total_seconds())
     moscow_dateini = start_time + timedelta(seconds=delta.total_seconds())
     duration = end_time - start_time
     issue_dict = defaultdict(int)
 
-    if result_pack_type==777:
+    if result_pack_type == 777:
         issue_dict['invalidRecordsNumeration'] += 1
-        result_pack_type  = 1
+        result_pack_type = 1
     elif result_pack_type == 888:
         issue_dict['invalidSingleRecordsNumeration'] += 1
         result_pack_type = 1
-    elif  result_pack_type == 999:
+    elif result_pack_type == 999:
         issue_dict['invalidDoubleRecordsNumeration'] += 1
         result_pack_type = 1
 
     min_time, max_time = await get_max_min_duration(conn, logger)
-    #logger.info(f'Duration border {min_time,max_time}')
+    # logger.info(f'Duration border {min_time,max_time}')
     if duration.seconds < min_time:
         issue_dict['durationBelowLimit'] += 1
     elif duration.seconds > max_time:
         issue_dict['durationOverLimit'] += 1
-    #logger.info(f'{issue_dict}')
+    # logger.info(f'{issue_dict}')
     insert_query = f'INSERT INTO polycomm_suitcase (' \
         f'device,' \
         f'device_id,' \
@@ -595,7 +612,7 @@ async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
         f'{duration.seconds},' \
         f'{result_pack_type}, {result_pack_type}, {False},' \
         f'\'{end_time}\', \'{start_time}\') RETURNING polycom_id;'
-    #logger.info(f'{insert_query}')
+    # logger.info(f'{insert_query}')
     return insert_query, issue_dict
 
 
@@ -615,7 +632,7 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
 
         print(last_id)
         logger.info(f'Last_ID: {last_id}')
-        #pack_type = await check_ids_increment(last_id, logger, pack_type, poly_id, rec)
+        # pack_type = await check_ids_increment(last_id, logger, pack_type, poly_id, rec)
         if 'T' in rec['Data_Fine']:
             rec['Data_Fine'] = rec["Data_Fine"].replace('T', ' ')
             rec['Data_ini'] = rec["Data_ini"].replace('T', ' ')
@@ -636,62 +653,66 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
             issue_dict['durationBelowLimit'] += 1
         elif duration.seconds > max_time:
             issue_dict['durationOverLimit'] += 1
-        if (rec["Ricetta"] is 0) :
+        if (rec["Ricetta"] is 0):
             insert_query = f'INSERT INTO polycomm_suitcase (' \
-                    f'device,' \
-                    f'device_id,' \
-                    f'polycommid,' \
-                    f'dateini,' \
-                    f'date,' \
-                    f'totalid,' \
-                    f'partialid, ' \
-                    f'alarmon,' \
-                    f'outcome,' \
-                    f'duration, ' \
-                    f'resolved,' \
-                    f'local_date,' \
-                    f'dateini_local) VALUES (' \
-                    f'\'{poly_id}\',' \
-                    f'{poly_id},' \
-                    f'{rec["ID"]},' \
-                    f'\'{moscow_dateini}\',' \
-                    f'\'{moscow_date}\',' \
-                    f'{rec["ID_Totale"]},' \
-                    f'{rec["ID_Parziale"]},' \
-                    f'{True if rec["Allarme"] > 0 else False},' \
-                    f'{rec["Esito"]},' \
-                    f'{duration.seconds},' \
-                    f'{False},' \
-                    f'\'{end_time}\', \'{start_time}\') RETURNING polycom_id;'
+                f'packer_error' \
+                f'device,' \
+                f'device_id,' \
+                f'polycommid,' \
+                f'dateini,' \
+                f'date,' \
+                f'totalid,' \
+                f'partialid, ' \
+                f'alarmon,' \
+                f'outcome,' \
+                f'duration, ' \
+                f'resolved,' \
+                f'local_date,' \
+                f'dateini_local) VALUES (' \
+                f'{False},' \
+                f'\'{poly_id}\',' \
+                f'{poly_id},' \
+                f'{rec["ID"]},' \
+                f'\'{moscow_dateini}\',' \
+                f'\'{moscow_date}\',' \
+                f'{rec["ID_Totale"]},' \
+                f'{rec["ID_Parziale"]},' \
+                f'{True if rec["Allarme"] > 0 else False},' \
+                f'{rec["Esito"]},' \
+                f'{duration.seconds},' \
+                f'{False},' \
+                f'\'{end_time}\', \'{start_time}\') RETURNING polycom_id;'
         else:
             insert_query = f'INSERT INTO polycomm_suitcase (' \
-                    f'device,' \
-                    f'device_id,' \
-                    f'polycommid,' \
-                    f'dateini,' \
-                    f'date,' \
-                    f'totalid,' \
-                    f'partialid, ' \
-                    f'alarmon,' \
-                    f'outcome,' \
-                    f'duration, ' \
-                    f'package_type, ' \
-                    f'package_type_final, ' \
-                    f'resolved,' \
-                    f'local_date,' \
-                    f'dateini_local) VALUES (' \
-                    f'\'{poly_id}\',' \
-                    f'{poly_id},' \
-                    f'{rec["ID"]},' \
-                    f'\'{moscow_dateini}\',' \
-                    f'\'{moscow_date}\',' \
-                    f'{rec["ID_Totale"]},' \
-                    f'{rec["ID_Parziale"]},' \
-                    f'{True if rec["Allarme"] > 0 else False},' \
-                    f'{rec["Esito"]},' \
-                    f'{duration.seconds},' \
-                    f'{rec["Ricetta"]}, {rec["Ricetta"]}, {False},' \
-                    f'\'{end_time}\', \'{start_time}\') RETURNING polycom_id;'
+                f'packer_error,' \
+                f'device,' \
+                f'device_id,' \
+                f'polycommid,' \
+                f'dateini,' \
+                f'date,' \
+                f'totalid,' \
+                f'partialid, ' \
+                f'alarmon,' \
+                f'outcome,' \
+                f'duration, ' \
+                f'package_type, ' \
+                f'package_type_final, ' \
+                f'resolved,' \
+                f'local_date,' \
+                f'dateini_local) VALUES (' \
+                f'{False},' \
+                f'\'{poly_id}\',' \
+                f'{poly_id},' \
+                f'{rec["ID"]},' \
+                f'\'{moscow_dateini}\',' \
+                f'\'{moscow_date}\',' \
+                f'{rec["ID_Totale"]},' \
+                f'{rec["ID_Parziale"]},' \
+                f'{True if rec["Allarme"] > 0 else False},' \
+                f'{rec["Esito"]},' \
+                f'{duration.seconds},' \
+                f'{rec["Ricetta"]}, {rec["Ricetta"]}, {False},' \
+                f'\'{end_time}\', \'{start_time}\') RETURNING polycom_id;'
 
     except Exception as exc:
         logger.exception(f'25a \'{exc}\'')
@@ -699,18 +720,18 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
     return insert_query, issue_dict
 
 
-async def check_ids_increment(last_id, logger,  poly_id, rec):
-    pack_type  = 1
+async def check_ids_increment(last_id, logger, poly_id, rec):
+    pack_type = 1
     if last_id is not None:
         if rec["ID"] - last_id[0] == 1:
-            if rec["ID_Totale"] - last_id[1] == 1 and rec["ID_Parziale"] - last_id[2]==0:
+            if rec["ID_Totale"] - last_id[1] == 1 and rec["ID_Parziale"] - last_id[2] == 0:
                 pack_type = 1
-            elif rec["ID_Parziale"] - last_id[2] == 1 and rec["ID_Totale"] - last_id[1]==0:
+            elif rec["ID_Parziale"] - last_id[2] == 1 and rec["ID_Totale"] - last_id[1] == 0:
                 pack_type = 2
-            elif rec["ID_Totale"] - last_id[1] is not 1 or 0:
+            elif rec["ID_Totale"] - last_id[1] not in range(0,2):
                 pack_type = 888
-                logger.error(f'30 total_id currupted counter device =\'{poly_id}\' ')
-            elif rec["ID_Parziale"] - last_id[2] is not 1 or 0:
+                logger.info(f'30 total_id currupted counter on device =\'{poly_id}\' ')
+            elif rec["ID_Parziale"] - last_id[2] not in range(0,2):
                 pack_type = 999
                 logger.error(f'31 partial_id currupted counter device =\'{poly_id}\'')
         elif rec["ID"] - last_id[0] is not 1:
@@ -721,6 +742,7 @@ async def check_ids_increment(last_id, logger,  poly_id, rec):
 
     return pack_type
 
+
 async def get_max_min_duration(conn, logger):
     '''
     Процедура получения граничных значений длительностьей упаковок
@@ -730,13 +752,14 @@ async def get_max_min_duration(conn, logger):
     '''
     try:
         min_time, max_time = 30, 120
-        min_time, max_time = await conn.fetchrow('SELECT suitcase_dur_min_thres, suitcase_dur_max_thres  FROM pnf_config WHERE pnf_config_id=1;')
+        min_time, max_time = await conn.fetchrow(
+            'SELECT suitcase_dur_min_thres, suitcase_dur_max_thres  FROM pnf_config WHERE pnf_config_id=1;')
     except Exception as exc:
         logger.error(f'28 Cannot recive data from pnf_config table: {exc}')
     return min_time, max_time
 
 
-async def set_polycomm_issue( conn, type_issue, suitcase, logger):
+async def set_polycomm_issue(conn, type_issue, suitcase, logger):
     """
     Формирование уведомления PoycommIssue
     :param id:
@@ -745,15 +768,16 @@ async def set_polycomm_issue( conn, type_issue, suitcase, logger):
     :return:
     """
     try:
-        #select_query = f'SELECT * FROM polycomm_suitcase WHERE polycom_id={suitcase};'
-        logger.info(f'SELECT * FROM polycomm_suitcase WHERE polycom_id={suitcase};')
+        # select_query = f'SELECT * FROM polycomm_suitcase WHERE polycom_id={suitcase};'
+        # logger.info(f'SELECT * FROM polycomm_suitcase WHERE polycom_id={suitcase};')
         last_row = await conn.fetchrow(f'SELECT * FROM polycomm_suitcase WHERE polycom_id={suitcase};')
 
         if last_row:
-            type_issue_id = await conn.fetchval(f'SELECT polycomm_issue_type_id FROM polycomm_issue_type WHERE code=\'{type_issue}\' ;')
+            type_issue_id = await conn.fetchval(
+                f'SELECT polycomm_issue_type_id FROM polycomm_issue_type WHERE code=\'{type_issue}\' ;')
 
-            insert_query  = f'INSERT INTO polycommissue (localdate, device, total, suitcase, duration, type, date, callback) ' \
-                f'VALUES (' \
+            insert_query = f'INSERT INTO polycommissue (id,localdate, device, total, suitcase, duration, type, date, callback) ' \
+                f'VALUES (22222222,' \
                 f'\'{last_row["local_date"]}\',' \
                 f'{last_row["device"]},' \
                 f'{last_row["totalid"]},' \
@@ -762,6 +786,7 @@ async def set_polycomm_issue( conn, type_issue, suitcase, logger):
                 f'{type_issue_id},' \
                 f'\'{last_row["date"]}\',' \
                 f'{False})  RETURNING polycommissue_id;'
+            print(insert_query)
             result = await conn.fetchval(insert_query)
 
             return result
@@ -787,8 +812,6 @@ async def get_last_ids(id, name, conn):
         last_id = await conn.fetchrow(f'SELECT polycommid FROM polycommalarm '
                                       f'WHERE device =\'{id}\' ORDER BY polycommid DESC LIMIT 1;')
         if not last_id:
-            last_id = {'polycommid':0}
-
-
+            last_id = {'polycommid': 0}
 
     return last_id
