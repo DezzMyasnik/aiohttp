@@ -1,6 +1,6 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
-
+import methods
 import pytz
 from aiohttp import web
 
@@ -445,65 +445,67 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
 async def insert_alarm_data(alarms, conn, delta, logger, poly_id, rec):
     """
                 Формируем строку запроса в таблицу алармов
-                """
-    if 'T' in rec['Data']:
-        rec['Data'] = rec["Data"].replace('T', ' ')
-    localdate = datetime.strptime(rec["Data"], FORMAT_DATE_TIME)
-    moscowdate = localdate + timedelta(seconds=delta.total_seconds())
-    if 'Total_Suitcase' in rec.keys():
-        insert_query = f'INSERT INTO polycommalarm(id,' \
-            f'device,' \
-            f'polycomid,' \
-            f'date,' \
-            f'message,' \
-            f'new,' \
-            f'total,' \
-            f'alarmtype,' \
-            f'localdate) VALUES(1,' \
-            f'{poly_id},' \
-            f'{rec["ID"]},' \
-            f'\'{moscowdate}\',' \
-            f'{rec["Messaggio"]},' \
-            f'{rec["New"]},' \
-            f'{rec["Total_Suitcase"]},' \
-            f'{alarms[rec["Messaggio"]]}, ' \
-            f'\'{localdate}\') RETURNING polycommalarm_id;'
-    else:
-        # print(al[rec["Messaggio"]])
-        insert_query = f'INSERT INTO polycommalarm (id,' \
-            f'device,' \
-            f'polycommid,' \
-            f'date,' \
-            f'message,' \
-            f'alarmtype,' \
-            f'localdate) VALUES (1,' \
-            f'{poly_id},' \
-            f'{rec["ID"]},' \
-            f'\'{moscowdate}\',' \
-            f'\'{rec["Messaggio"]}\',' \
-            f'{alarms[rec["Messaggio"]]}, ' \
-            f'\'{localdate}\') RETURNING polycommalarm_id;'
-    # print(insert_query)
-    # f'alarmtype,' \  #f'{alarms[rec["Messaggio"]]}, '
+    """
+    try:
+        if 'T' in rec['Data']:
+            rec['Data'] = rec["Data"].replace('T', ' ')
+        localdate = datetime.fromisoformat(rec['Data'])
+        moscowdate = localdate + timedelta(seconds=delta.total_seconds())
+        if 'Total_Suitcase' in rec.keys():
+            insert_query = f'INSERT INTO polycommalarm (id,' \
+                f'device,' \
+                f'polycommid,' \
+                f'date,' \
+                f'message,' \
+                f'total,' \
+                f'alarmtype,' \
+                f'localdate) VALUES(1,' \
+                f'{poly_id},' \
+                f'{rec["ID"]},' \
+                f'\'{moscowdate}\',' \
+                f'\'{rec["Messaggio"]}\',' \
+                f'{rec["Total_Suitcase"]},' \
+                f'{alarms[rec["Messaggio"]]}, ' \
+                f'\'{localdate}\') RETURNING polycommalarm_id;'
+        else:
+            # print(al[rec["Messaggio"]])
+            insert_query = f'INSERT INTO polycommalarm (id,' \
+                f'device,' \
+                f'polycommid,' \
+                f'date,' \
+                f'message,' \
+                f'alarmtype,' \
+                f'localdate) VALUES (1,' \
+                f'{poly_id},' \
+                f'{rec["ID"]},' \
+                f'\'{moscowdate}\',' \
+                f'\'{rec["Messaggio"]}\',' \
+                f'\'{alarms[rec["Messaggio"]]}\', ' \
+                f'\'{localdate}\') RETURNING polycommalarm_id;'
+        # print(insert_query)
+        # f'alarmtype,' \  #f'{alarms[rec["Messaggio"]]}, '
 
-    polycomm_alarm_id = await conn.fetchval(insert_query)
-    # print(polycomm_alarm_id)
-    if polycomm_alarm_id:
-        update_query = f'UPDATE polycommalarm SET id={polycomm_alarm_id} where polycommalarm_id={polycomm_alarm_id};'
-        # logger.info(update_query)
-        await conn.execute(update_query)
-        if VERBOSE == 3:
-            # logger.debug('request data: ' + str(data))
-            logger.info(
-                f'23 Recived and inserted into DB table alarm polycomm_alarm_id= {polycomm_alarm_id} from machne_id = {poly_id}')
+        polycomm_alarm_id = await conn.fetchval(insert_query)
+        # print(polycomm_alarm_id)
+        if polycomm_alarm_id:
+            update_query = f'UPDATE polycommalarm SET id={polycomm_alarm_id} where polycommalarm_id={polycomm_alarm_id};'
+            # logger.info(update_query)
+            await conn.execute(update_query)
+            if VERBOSE == 3:
+                # logger.debug('request data: ' + str(data))
+                logger.info(
+                    f'23 Recived and inserted into DB table alarm polycomm_alarm_id= {polycomm_alarm_id} from machne_id = {poly_id}')
 
-        return web.json_response(
-            getResponseJSON(0, 'Request successfully processed', {'polycomm_alarm_id': polycomm_alarm_id}),
-            status=RESPONSE_STATUS)
-    else:
-        logger.error(f'24 Alarm wasn`t inserted from machine {poly_id}')
-        return web.json_response(getResponseJSON(6, 'Could not add alarm to DB',
+            return web.json_response(
+                getResponseJSON(0, 'Request successfully processed', {'polycomm_alarm_id': polycomm_alarm_id}),
+                status=RESPONSE_STATUS)
+        else:
+            logger.error(f'24 Alarm wasn`t inserted from machine {poly_id}')
+            return web.json_response(getResponseJSON(6, 'Could not add alarm to DB',
                                                  {}), status=RESPONSE_STATUS)
+
+    except Exception:
+        logger.exception('trouble2')
 
 
 async def insert_suitcase_data(conn, delta, logger, poly_id, rec):
@@ -512,14 +514,14 @@ async def insert_suitcase_data(conn, delta, logger, poly_id, rec):
             insert_query, issue_dict = await create_insert_query_polycomm(conn, delta, logger, poly_id, rec)
         else:
             insert_query, issue_dict = await create_insert_query_packfly(conn, delta, logger, poly_id, rec)
-        logger.info(insert_query)
+        #logger.info(insert_query)
 
         polycomm_id = await conn.fetchval(insert_query)
 
-        logger.info(f'polycomm_id:{polycomm_id}')
+        #logger.info(f'polycomm_id:{polycomm_id}')
         if polycomm_id:
             update_query = f'UPDATE polycomm_suitcase SET id={polycomm_id} where polycom_id={polycomm_id};'
-            logger.info(update_query)
+            #logger.info(update_query)
             await conn.execute(update_query)
 
             if VERBOSE == 3:
@@ -550,8 +552,8 @@ async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
     # logger.info(f'pack_type: {result_pack_type}')
     if 'T' in rec['Data']:
 
-        rec['Data'] = rec["Data"].replace('T', ' ')[:rec["Data"].index('.')]
-        rec['Data_ini'] = rec["Data_ini"].replace('T', ' ')[:rec["Data_ini"].index('.')]
+        rec['Data'] = rec["Data"].replace('T', ' ')
+        rec['Data_ini'] = rec["Data_ini"].replace('T', ' ')
 
 
     start_time = datetime.fromisoformat(rec["Data_ini"])
@@ -580,7 +582,7 @@ async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
     elif duration.seconds > max_time:
         issue_dict['durationOverLimit'] += 1
     # logger.info(f'{issue_dict}')
-    insert_query = f'INSERT INTO polycomm_suitcase (' \
+    insert_query = f'INSERT INTO polycomm_suitcase (packer_error,' \
         f'device,' \
         f'device_id,' \
         f'polycommid,' \
@@ -597,7 +599,7 @@ async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
         f'package_type_final, ' \
         f'resolved,' \
         f'local_date,' \
-        f'dateini_local) VALUES (' \
+        f'dateini_local) VALUES ({False},' \
         f'\'{poly_id}\',' \
         f'{poly_id},' \
         f'{rec["ID"]},' \
@@ -631,7 +633,7 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
                                       f'WHERE device =\'{poly_id}\' ORDER BY polycommid DESC LIMIT 1;')
 
         print(last_id)
-        logger.info(f'Last_ID: {last_id}')
+        #logger.info(f'Last_ID: {last_id}')
         # pack_type = await check_ids_increment(last_id, logger, pack_type, poly_id, rec)
         if 'T' in rec['Data_Fine']:
             rec['Data_Fine'] = rec["Data_Fine"].replace('T', ' ')
@@ -655,7 +657,7 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
             issue_dict['durationOverLimit'] += 1
         if (rec["Ricetta"] is 0):
             insert_query = f'INSERT INTO polycomm_suitcase (' \
-                f'packer_error' \
+                f'packer_error,' \
                 f'device,' \
                 f'device_id,' \
                 f'polycommid,' \
@@ -786,7 +788,7 @@ async def set_polycomm_issue(conn, type_issue, suitcase, logger):
                 f'{type_issue_id},' \
                 f'\'{last_row["date"]}\',' \
                 f'{False})  RETURNING polycommissue_id;'
-            print(insert_query)
+            #print(insert_query)
             result = await conn.fetchval(insert_query)
 
             return result
@@ -809,9 +811,90 @@ async def get_last_ids(id, name, conn):
             last_id = {'polycommid': 0, 'totalid': 0, 'partialid': 0}
 
     elif name == 'Allarmi':
-        last_id = await conn.fetchrow(f'SELECT polycommid FROM polycommalarm '
+        last_id = await conn.fetchrow(f'SELECT polycommid, total FROM polycommalarm '
                                       f'WHERE device =\'{id}\' ORDER BY polycommid DESC LIMIT 1;')
+
+
         if not last_id:
-            last_id = {'polycommid': 0}
+            last_id = {'polycommid': 0, 'total':0 }
+        elif not last_id['total']:
+            last_id = {'polycommid': last_id['polycommid']}
+
 
     return last_id
+
+
+@routes.get('/collectors/last_service')
+def download(request):
+    dir = 'files'
+    file_name = f'PNFService.exe'
+    full_dir_name = os.path.join(os.getcwd(), dir)
+
+    file_n = os.path.join(full_dir_name, file_name)
+    return web.FileResponse(file_n)
+
+@routes.get('/collectors/need_update')
+async def needupadte(request):
+    """
+    Эндпоинт для проверки необходимости обновления файла службы. Так же постит значение версии файла службы
+     на конкретной машине. Пости сообщение в бот б обновлении
+     :param request:
+    :return: True если обновление необходимо, False если нет
+    """
+    try:
+        if request.method == 'GET':
+            pool = request.app[POOL_NAME]
+
+            logger = request.app['logger']
+            if pool is None:
+                logger.error('12. No connection to the database')
+                return web.json_response(getResponseJSON(5, 'No connection to the database', {}),
+                                         status=RESPONSE_STATUS)
+
+            params = request.rel_url.query
+            if params:
+                dir = 'files'
+                file_name = f'PNFService.exe'
+                full_dir_name = os.path.join(os.getcwd(), dir)
+
+                file_n = os.path.join(full_dir_name, file_name)
+
+                ver = params['ver']
+                #print(ver)
+                ver_file = methods.getFileProperties(file_n)
+                #print(ver_file['FileVersion'])
+
+                if ver == ver_file['FileVersion']:
+                    async with pool.acquire() as conn:
+                        async with conn.transaction():
+                            try:
+                                update_query = f'UPDATE polycomm_device SET service_version=\'{ver_file["FileVersion"]}\'' \
+                                    f' where code=\'{params["id"]}\';'
+                                # logger.info(update_query)
+                                await conn.execute(update_query)
+
+                                if VERBOSE == 3:
+                                    # logger.debug('request data: ' + str(data))
+                                    logger.info(
+                                        f'30 update information of service on machine_id = {params["id"]}')
+
+                            except Exception:
+                                logger.exception('31. Trouble with update version of service file')
+                    return web.json_response(
+                            getResponseJSON(0, 'Need update service', {"need_update": False}),
+                            status=RESPONSE_STATUS)
+                else:
+                    async with pool.acquire() as conn:
+                        async with conn.transaction():
+                            try:
+                                message = f'Service file on machine_id {params["id"]} needs ' \
+                                    f' to update version from {ver} to {ver_file["FileVersion"]} '
+                                await send_message_to_bot(conn, message, 0)
+                                logger.info(f'32. {message}')
+                            except Exception:
+                                logger.exception('33. Cannot send info to messenger')
+                    return web.json_response(getResponseJSON(0, 'Need update service', {"need_update": True}),
+                            status=RESPONSE_STATUS)
+
+    except Exception:
+        logger.exception("что то пошло не так")
