@@ -36,7 +36,7 @@ RESPONSE_DATA = 'data'
 
 RESPONSE_STATUS = 200
 
-
+REPOSITORY = '/home/db-dev/scripts/polycommCollector/files'
 LOG_FILE_NAME = os.path.dirname(os.path.realpath(__file__)) + '/log/polycommCollector.log'
 LOG_FORMAT = '%(asctime)s: %(levelname)s: %(message)s'
 

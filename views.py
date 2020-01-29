@@ -1,9 +1,8 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
-import methods
 import pytz
 from aiohttp import web
-
+import xml.dom.minidom
 from settings import *
 
 
@@ -30,7 +29,7 @@ async def get_db_apss(request):
     сообщения в мессенжер отправляются однократно при первом обнаружении проблемы с паролем.
     3. пока пароль не получен, ни какие манипуляции с локальной БД невозможны.
     4. Пароль запрашивается однократно, заноситься в оперативную память машины, ни где не храниться.
-     После успеха получения пароля, запрашивание паролья прекарщается до рестарта службы.
+     После успеха получения пароля, запрашивание пароля прекарщается до рестарта службы.
 
 
     :param request:
@@ -38,11 +37,11 @@ async def get_db_apss(request):
     """
     try:
         logger = request.app['logger']
-        logger.info('Enter to db_pass')
+        #logger.info('Enter to db_pass')
         pool = request.app[POOL_NAME]
-        logger.info('Get pool')
+        #logger.info('Get pool')
         params = request.rel_url.query
-        logger.info(f'get params {params}')
+        #logger.info(f'get params {params}')
         if pool is None:
             logger.error('2. No connection to the database')
             return web.json_response(getResponseJSON(5, 'No connection to the database', {}),
@@ -83,132 +82,140 @@ async def chek_state_of_machine(request):
         async with pool.acquire() as conn:
             async with conn.transaction():
                 polycom_dev_id = await conn.fetchval(f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
-                if polycom_dev_id:
+                select_query = f'SELECT service_status_type FROM timestamps WHERE devicecode=\'{params["id"]}\';'
+                # print(select_query)
+                check = await conn.fetchval(select_query)
+                if check is not 0:
+                    if polycom_dev_id:
 
-                    if params["stateval"] is '3':
-                        """ Last seen of device"""
-                        update_query = f'UPDATE timestamps SET ' \
-                            f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', service_status_type=' \
-                            f'{params["stateval"]} ' \
-                            f'WHERE devicecode=\'{params["id"]}\';'
+                        if params["stateval"] is '3':
+                            """ Last seen of device"""
+                            update_query = f'UPDATE timestamps SET ' \
+                                f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', service_status_type=' \
+                                f'{params["stateval"]} ' \
+                                f'WHERE devicecode=\'{params["id"]}\';'
 
-                        await conn.execute(update_query)
-                        # logger.info(f'3. Machine {params["id"]} is on air')
-                        return web.json_response(
-                            getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
-                            status=RESPONSE_STATUS)
-
-                    elif params["stateval"] is '2':
-                        update_query = f'UPDATE timestamps SET ' \
-                            f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', service_status_type=' \
-                            f'{params["stateval"]} ' \
-                            f'WHERE devicecode=\'{params["id"]}\';'
-
-                        await conn.execute(update_query)
-                        message = f'The Unit on machine {params["id"]} is turned off'
-                        messenger_id = await send_message_to_bot(conn, message, polycom_dev_id)
-                        if messenger_id:
-                            logger.info(f'4. Service on machine {params["id"]} is off')
-                            return web.json_response(
-                                getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
-                                status=RESPONSE_STATUS)
-                        else:
-                            logger.info(f'4. Service on machine {params["id"]} was stopped, '
-                                        f'but a message was not sent to the bot')
+                            await conn.execute(update_query)
+                            # logger.info(f'3. Machine {params["id"]} is on air')
                             return web.json_response(
                                 getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
                                 status=RESPONSE_STATUS)
 
+                        elif params["stateval"] is '2':
+                            update_query = f'UPDATE timestamps SET ' \
+                                f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', service_status_type=' \
+                                f'{params["stateval"]} ' \
+                                f'WHERE devicecode=\'{params["id"]}\';'
 
-
-                    elif params["stateval"] is '1':
-                        update_query = f'UPDATE timestamps SET ' \
-                            f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', service_status_type=' \
-                            f'{params["stateval"]} ' \
-                            f'WHERE devicecode=\'{params["id"]}\';'
-
-                        await conn.execute(update_query)
-                        message = f'Service on machine {params["id"]} is turned on'
-                        messenger_id = await send_message_to_bot(conn, message, polycom_dev_id)
-                        if messenger_id:
-                            logger.info(f'5. {message}')
-                            return web.json_response(
-                                getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
-                                status=RESPONSE_STATUS)
-                        else:
-                            logger.info(f'4. {message}, but a message was not sent to the bot')
-                            return web.json_response(
-                                getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
-                                status=RESPONSE_STATUS)
-
-                    elif params["stateval"] is '4':
-                        status_service = await conn.fetchval(
-                            f'SELECT service_status_type FROM timestamps WHERE devicecode=\'{params["id"]}\';')
-                        if status_service:
-                            if status_service is not 4:
-                                update_query = f'UPDATE timestamps SET ' \
-                                    f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', ' \
-                                    f'service_status_type={params["stateval"]} ' \
-                                    f'WHERE devicecode=\'{params["id"]}\';'
-
-                                await conn.execute(update_query)
-                                message = f'Service on machine {params["id"]} cannot connect to local DB'
-                                messenger_id = await send_message_to_bot(conn, message, polycom_dev_id)
-                                if messenger_id:
-                                    logger.warning(f'5a. {message}')
-                                    return web.json_response(
-                                        getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
-                                        status=RESPONSE_STATUS)
-                                else:
-                                    logger.warning(f'4a. {message}, but a message was not sent to the bot')
-                                    return web.json_response(
-                                        getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
-                                        status=RESPONSE_STATUS)
+                            await conn.execute(update_query)
+                            message = f'The Unit on machine {params["id"]} is turned off'
+                            messenger_id = await send_message_to_bot(conn, message, polycom_dev_id)
+                            if messenger_id:
+                                logger.info(f'4. Service on machine {params["id"]} is off')
+                                return web.json_response(
+                                    getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                    status=RESPONSE_STATUS)
                             else:
-                                update_query = f'UPDATE timestamps SET ' \
-                                    f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', ' \
-                                    f'service_status_type={params["stateval"]} ' \
-                                    f'WHERE devicecode=\'{params["id"]}\';'
-                                await conn.execute(update_query)
-
+                                logger.info(f'4. Service on machine {params["id"]} was stopped, '
+                                            f'but a message was not sent to the bot')
                                 return web.json_response(
                                     getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
                                     status=RESPONSE_STATUS)
 
 
-                    elif params["stateval"] is '5':
-                        status_service = await conn.fetchval(
-                            f'SELECT service_status_type FROM timestamps WHERE devicecode=\'{params["id"]}\';')
-                        if status_service:
-                            if status_service is not 5:
-                                update_query = f'UPDATE timestamps SET ' \
-                                    f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', ' \
-                                    f'service_status_type={params["stateval"]} ' \
-                                    f'WHERE devicecode=\'{params["id"]}\';'
-                                await conn.execute(update_query)
-                                message = f'The service on machine {params["id"]} did not receive' \
-                                            f' a password from the server'
-                                messenger_id = await send_message_to_bot(conn, message, polycom_dev_id)
-                                if messenger_id:
-                                    logger.warning(f'5b. {message}')
-                                    return web.json_response(
-                                        getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
-                                        status=RESPONSE_STATUS)
-                                else:
-                                    logger.warning(f'4b. {message}, but a message was not sent to the bot')
-                                    return web.json_response(
-                                        getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
-                                        status=RESPONSE_STATUS)
+
+                        elif params["stateval"] is '1':
+                            update_query = f'UPDATE timestamps SET ' \
+                                f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', service_status_type=' \
+                                f'{params["stateval"]} ' \
+                                f'WHERE devicecode=\'{params["id"]}\';'
+
+                            await conn.execute(update_query)
+                            message = f'Service on machine {params["id"]} is turned on'
+                            messenger_id = await send_message_to_bot(conn, message, polycom_dev_id)
+                            if messenger_id:
+                                logger.info(f'5. {message}')
+                                return web.json_response(
+                                    getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                    status=RESPONSE_STATUS)
                             else:
-                                update_query = f'UPDATE timestamps SET ' \
-                                    f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', ' \
-                                    f'service_status_type={params["stateval"]} ' \
-                                    f'WHERE devicecode=\'{params["id"]}\';'
-                                await conn.execute(update_query)
+                                logger.info(f'4. {message}, but a message was not sent to the bot')
                                 return web.json_response(
                                     getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
                                     status=RESPONSE_STATUS)
 
+                        elif params["stateval"] is '4':
+                            status_service = await conn.fetchval(
+                                f'SELECT service_status_type FROM timestamps WHERE devicecode=\'{params["id"]}\';')
+                            if status_service:
+                                if status_service is not 4:
+                                    update_query = f'UPDATE timestamps SET ' \
+                                        f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', ' \
+                                        f'service_status_type={params["stateval"]} ' \
+                                        f'WHERE devicecode=\'{params["id"]}\';'
+
+                                    await conn.execute(update_query)
+                                    message = f'Service on machine {params["id"]} cannot connect to local DB'
+                                    messenger_id = await send_message_to_bot(conn, message, polycom_dev_id)
+                                    if messenger_id:
+                                        logger.warning(f'5a. {message}')
+                                        return web.json_response(
+                                            getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                            status=RESPONSE_STATUS)
+                                    else:
+                                        logger.warning(f'4a. {message}, but a message was not sent to the bot')
+                                        return web.json_response(
+                                            getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                            status=RESPONSE_STATUS)
+                                else:
+                                    update_query = f'UPDATE timestamps SET ' \
+                                        f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', ' \
+                                        f'service_status_type={params["stateval"]} ' \
+                                        f'WHERE devicecode=\'{params["id"]}\';'
+                                    await conn.execute(update_query)
+
+                                    return web.json_response(
+                                        getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                        status=RESPONSE_STATUS)
+
+
+                        elif params["stateval"] is '5':
+                            status_service = await conn.fetchval(
+                                f'SELECT service_status_type FROM timestamps WHERE devicecode=\'{params["id"]}\';')
+                            if status_service:
+                                if status_service is not 5:
+                                    update_query = f'UPDATE timestamps SET ' \
+                                        f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', ' \
+                                        f'service_status_type={params["stateval"]} ' \
+                                        f'WHERE devicecode=\'{params["id"]}\';'
+                                    await conn.execute(update_query)
+                                    message = f'The service on machine {params["id"]} did not receive' \
+                                                f' a password from the server'
+                                    messenger_id = await send_message_to_bot(conn, message, polycom_dev_id)
+                                    if messenger_id:
+                                        logger.warning(f'5b. {message}')
+                                        return web.json_response(
+                                            getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                            status=RESPONSE_STATUS)
+                                    else:
+                                        logger.warning(f'4b. {message}, but a message was not sent to the bot')
+                                        return web.json_response(
+                                            getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                            status=RESPONSE_STATUS)
+                                else:
+                                    update_query = f'UPDATE timestamps SET ' \
+                                        f'lastresponse_service=\'{datetime.now().isoformat(sep=" ")}\', ' \
+                                        f'service_status_type={params["stateval"]} ' \
+                                        f'WHERE devicecode=\'{params["id"]}\';'
+                                    await conn.execute(update_query)
+                                    return web.json_response(
+                                        getResponseJSON(0, 'Request successfully processed', {'stateval': "ok"}),
+                                        status=RESPONSE_STATUS)
+                else:
+                    logger.error(f'10a. Disable to send any data from machine id = {params["id"]}')
+                    return web.json_response(
+                        getResponseJSON(3, 'Stop to send any data', {'status': False}),
+                        status=RESPONSE_STATUS)
     except Exception as exc:
         logger.exception(f'6. Some trouble in check_state procedure: {exc}')
 
@@ -232,7 +239,7 @@ async def send_message_to_bot(conn, message, polycom_dev_id):
 async def check(request):
     """
     проверка статуса машины
-    :param request: ?id={int}status={int}
+    :param request: ?id={int}&status={int}
     :return: {status:True or False}
     http://develop.db.packandfly.ru:8071/collectors/check?id=2812&status=1 ++++++
     """
@@ -323,11 +330,12 @@ async def collectors(request):
                             polycom_dev_id = await conn.fetchval(
                                 f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
                             # logger.error(f'2')
-                            if polycom_dev_id is None:
-                                message = f'Machine with serial number {params["id"]} trying to send data into DB'
+                            if not polycom_dev_id:
+                                message = f'Machine with serial number {params["id"]} trying to send data into DB, but ' \
+                                    f'it isn`t registred'
                                 await send_message_to_bot(conn, message, 0)
                                 logger.error(
-                                    f'13. Machine with serial number {params["id"]} trying to send data into DB')
+                                    f'13. {message}')
                                 return web.json_response(
                                     getResponseJSON(6, 'The Machine is not registered!!!', {}),
                                     status=RESPONSE_STATUS)
@@ -341,7 +349,7 @@ async def collectors(request):
                                 getResponseJSON(0, 'All OK, server is redy!!!', {}),
                                 status=RESPONSE_STATUS)
                     except Exception as excc:
-                        logger.error('14. Error at conn.fetchval at collector function: ' + str(excc))
+                        logger.exception('14. Error at conn.fetchval at collector function: ' + str(excc))
     except Exception as ex:
         logger.error('15 Exception from get request to big DB: ' + str(ex))
 
@@ -374,7 +382,7 @@ async def collector_post(request):
                         if records:
                             await send_data_to_big_db(polycom_dev_id['id'], tb_name, records, conn, request, tz)
     except Exception as ex:
-        logger.error(f'19 Exeception from post request to big DB {ex}')
+        logger.exception(f'19 Exeception from post request to big DB {ex}')
 
 
 async def get_dev_id_and_tz(pool, logger, data):
@@ -416,7 +424,9 @@ async def send_data_to_big_db(poly_id, tb_name, records, conn, request, timezone
     if tb_name == 'Suitcase':
         try:
             dict_of_issue_dict = {}
+            #logger.info(records)
             for rec in records:
+                #logger.info(rec)
                 polycomm_id, issue_dict = await insert_suitcase_data(conn, delta, logger, poly_id, rec)
 
                 if issue_dict:
@@ -510,13 +520,15 @@ async def insert_alarm_data(alarms, conn, delta, logger, poly_id, rec):
 
 async def insert_suitcase_data(conn, delta, logger, poly_id, rec):
     try:
-        if 'Data_Fine' not in rec.keys():
-            insert_query, issue_dict = await create_insert_query_polycomm(conn, delta, logger, poly_id, rec)
-        else:
-            insert_query, issue_dict = await create_insert_query_packfly(conn, delta, logger, poly_id, rec)
-        #logger.info(insert_query)
-
-        polycomm_id = await conn.fetchval(insert_query)
+        #logger.info(rec)
+        if rec:
+            if 'Data_Fine' not in rec.keys():
+                insert_query, issue_dict = await create_insert_query_polycomm(conn, delta, logger, poly_id, rec)
+            else:
+                insert_query, issue_dict = await create_insert_query_packfly(conn, delta, logger, poly_id, rec)
+            #logger.info(insert_query)
+        if insert_query:
+            polycomm_id = await conn.fetchval(insert_query)
 
         #logger.info(f'polycomm_id:{polycomm_id}')
         if polycomm_id:
@@ -544,78 +556,99 @@ async def create_insert_query_polycomm(conn, delta, logger, poly_id, rec):
     '''
     Формируем строку запроса для вставки упаковки в бльшую БД из локальной БД Polycomm
     '''
-
-    last_id = await conn.fetchrow(f'SELECT polycommid, totalid, partialid FROM polycomm_suitcase '
+    try:
+        last_id = await conn.fetchrow(f'SELECT polycommid, totalid, partialid FROM polycomm_suitcase '
                                   f'WHERE device =\'{poly_id}\' ORDER BY polycommid DESC LIMIT 1;')
+        logger.info(f'Last_ID: {last_id}')
+
+    except Exception:
+        logger.exception(f'20003')
     # logger.info(f'Last_ID: {last_id}')
-    result_pack_type = await check_ids_increment(last_id, logger, poly_id, rec)
-    # logger.info(f'pack_type: {result_pack_type}')
-    if 'T' in rec['Data']:
+    if not last_id:
+        last_id = (0, 0, 0)
+    try:
+        result_pack_type = await check_ids_increment(last_id, logger, poly_id, rec)
 
-        rec['Data'] = rec["Data"].replace('T', ' ')
-        rec['Data_ini'] = rec["Data_ini"].replace('T', ' ')
+        # logger.info(f'pack_type: {result_pack_type}')
+        if not rec["Data_ini"]:
+            #logger.info(f'{rec["Data_ini"]}')
+            rec['Data_ini'] = rec['Data']
+            #logger.info(f'{rec["Data_ini"]}')
+
+        if rec['Data'] and rec["Data_ini"]:
+
+            if 'T' in rec['Data']:
+
+                rec['Data'] = rec["Data"].replace('T', ' ')
+                rec['Data_ini'] = rec["Data_ini"].replace('T', ' ')
 
 
-    start_time = datetime.fromisoformat(rec["Data_ini"])
-    #start_time = datetime.strptime(rec["Data_ini"], FORMAT_DATE_TIME)
-    end_time =datetime.fromisoformat(rec["Data"])
-    #end_time = datetime.strptime(rec["Data"], FORMAT_DATE_TIME)
-    moscow_date = end_time + timedelta(seconds=delta.total_seconds())
-    moscow_dateini = start_time + timedelta(seconds=delta.total_seconds())
-    duration = end_time - start_time
-    issue_dict = defaultdict(int)
+            start_time = datetime.fromisoformat(rec["Data_ini"])
+            #start_time = datetime.strptime(rec["Data_ini"], FORMAT_DATE_TIME)
+            end_time =datetime.fromisoformat(rec["Data"])
+            #end_time = datetime.strptime(rec["Data"], FORMAT_DATE_TIME)
+            moscow_date = end_time + timedelta(seconds=delta.total_seconds())
+            moscow_dateini = start_time + timedelta(seconds=delta.total_seconds())
+            duration = end_time - start_time
+            issue_dict = defaultdict(int)
 
-    if result_pack_type == 777:
-        issue_dict['invalidRecordsNumeration'] += 1
-        result_pack_type = 1
-    elif result_pack_type == 888:
-        issue_dict['invalidSingleRecordsNumeration'] += 1
-        result_pack_type = 1
-    elif result_pack_type == 999:
-        issue_dict['invalidDoubleRecordsNumeration'] += 1
-        result_pack_type = 1
+            if result_pack_type == 777:
+                issue_dict['invalidRecordsNumeration'] += 1
+                result_pack_type = 1
+            elif result_pack_type == 888:
+                issue_dict['invalidSingleRecordsNumeration'] += 1
+                result_pack_type = 1
+            elif result_pack_type == 999:
+                issue_dict['invalidDoubleRecordsNumeration'] += 1
+                result_pack_type = 1
 
-    min_time, max_time = await get_max_min_duration(conn, logger)
-    # logger.info(f'Duration border {min_time,max_time}')
-    if duration.seconds < min_time:
-        issue_dict['durationBelowLimit'] += 1
-    elif duration.seconds > max_time:
-        issue_dict['durationOverLimit'] += 1
-    # logger.info(f'{issue_dict}')
-    insert_query = f'INSERT INTO polycomm_suitcase (packer_error,' \
-        f'device,' \
-        f'device_id,' \
-        f'polycommid,' \
-        f'dateini,' \
-        f'date,' \
-        f'totalid,' \
-        f'partialid, ' \
-        f'alarmon,' \
-        f'outcome,' \
-        f'koweight,' \
-        f'kostop,' \
-        f'duration, ' \
-        f'package_type, ' \
-        f'package_type_final, ' \
-        f'resolved,' \
-        f'local_date,' \
-        f'dateini_local) VALUES ({False},' \
-        f'\'{poly_id}\',' \
-        f'{poly_id},' \
-        f'{rec["ID"]},' \
-        f'\'{moscow_dateini}\',' \
-        f'\'{moscow_date}\',' \
-        f'{rec["ID_Totale"]},' \
-        f'{rec["ID_Parziale"]},' \
-        f'{rec["Allarme_ON"]},' \
-        f'{rec["Esito"]},' \
-        f'{rec["KO_Peso"]},' \
-        f'{rec["KO_STOP"]},' \
-        f'{duration.seconds},' \
-        f'{result_pack_type}, {result_pack_type}, {False},' \
-        f'\'{end_time}\', \'{start_time}\') RETURNING polycom_id;'
-    # logger.info(f'{insert_query}')
-    return insert_query, issue_dict
+            min_time, max_time = await get_max_min_duration(conn, logger)
+            # logger.info(f'Duration border {min_time,max_time}')
+            if duration.seconds < min_time:
+                issue_dict['durationBelowLimit'] += 1
+            elif duration.seconds > max_time:
+                issue_dict['durationOverLimit'] += 1
+            # logger.info(f'{issue_dict}')
+            insert_query = f'INSERT INTO polycomm_suitcase (packer_error,' \
+                f'device,' \
+                f'device_id,' \
+                f'polycommid,' \
+                f'dateini,' \
+                f'date,' \
+                f'totalid,' \
+                f'partialid, ' \
+                f'alarmon,' \
+                f'outcome,' \
+                f'koweight,' \
+                f'kostop,' \
+                f'duration, ' \
+                f'package_type, ' \
+                f'package_type_final, ' \
+                f'resolved,' \
+                f'local_date,' \
+                f'dateini_local) VALUES ({False},' \
+                f'\'{poly_id}\',' \
+                f'{poly_id},' \
+                f'{rec["ID"]},' \
+                f'\'{moscow_dateini}\',' \
+                f'\'{moscow_date}\',' \
+                f'{rec["ID_Totale"]},' \
+                f'{rec["ID_Parziale"]},' \
+                f'{rec["Allarme_ON"]},' \
+                f'{rec["Esito"]},' \
+                f'{rec["KO_Peso"]},' \
+                f'{rec["KO_STOP"]},' \
+                f'{duration.seconds},' \
+                f'{result_pack_type}, {result_pack_type}, {False},' \
+                f'\'{end_time}\', \'{start_time}\') RETURNING polycom_id;'
+            # logger.info(f'{insert_query}')
+
+
+            return insert_query, issue_dict
+    except Exception:
+        logger.error('20004')
+
+
 
 
 async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
@@ -724,7 +757,7 @@ async def create_insert_query_packfly(conn, delta, logger, poly_id, rec):
 
 async def check_ids_increment(last_id, logger, poly_id, rec):
     pack_type = 1
-    if last_id is not None:
+    if last_id:
         if rec["ID"] - last_id[0] == 1:
             if rec["ID_Totale"] - last_id[1] == 1 and rec["ID_Parziale"] - last_id[2] == 0:
                 pack_type = 1
@@ -732,7 +765,7 @@ async def check_ids_increment(last_id, logger, poly_id, rec):
                 pack_type = 2
             elif rec["ID_Totale"] - last_id[1] not in range(0,2):
                 pack_type = 888
-                logger.info(f'30 total_id currupted counter on device =\'{poly_id}\' ')
+                logger.info(f'30b total_id currupted counter on device =\'{poly_id}\' ')
             elif rec["ID_Parziale"] - last_id[2] not in range(0,2):
                 pack_type = 999
                 logger.error(f'31 partial_id currupted counter device =\'{poly_id}\'')
@@ -740,7 +773,7 @@ async def check_ids_increment(last_id, logger, poly_id, rec):
             pack_type = 777
             logger.error(f'26 last_id wasn`t incremented.Some trouble on device =\'{poly_id}\' {pack_type}')
     else:
-        logger.error(f'27 last_id wasn`t incremented.Some trouble on device =\'{poly_id}\'')
+        logger.error(f'27 last_id wasn`t incremented. Some trouble on device =\'{poly_id}\'')
 
     return pack_type
 
@@ -802,7 +835,7 @@ async def get_last_ids(id, name, conn):
     :param id: Polycomm ID машины
     :param name: название таблицы
     :param conn: объект подключения к базе
-    :return: словарь дентификаторов последней записи упаковки/аларма
+    :return: словарь идентификаторов последней записи упаковки/аларма
     """
     if name == 'Suitcase':
         last_id = await conn.fetchrow(f'SELECT polycommid, totalid, partialid FROM polycomm_suitcase '
@@ -826,18 +859,18 @@ async def get_last_ids(id, name, conn):
 
 @routes.get('/collectors/last_service')
 def download(request):
-    dir = 'files'
-    file_name = f'PNFService.exe'
-    full_dir_name = os.path.join(os.getcwd(), dir)
-
-    file_n = os.path.join(full_dir_name, file_name)
-    return web.FileResponse(file_n)
+    try:
+        logger = request.app['logger']
+        file_n = os.path.join(REPOSITORY, 'PNFService.exe')
+        return web.FileResponse(file_n)
+    except Exception:
+        logger.exception("вот")
 
 @routes.get('/collectors/need_update')
 async def needupadte(request):
     """
     Эндпоинт для проверки необходимости обновления файла службы. Так же постит значение версии файла службы
-     на конкретной машине. Пости сообщение в бот б обновлении
+     на конкретной машине. Пости сообщение в бот об обновлении
      :param request:
     :return: True если обновление необходимо, False если нет
     """
@@ -853,22 +886,30 @@ async def needupadte(request):
 
             params = request.rel_url.query
             if params:
-                dir = 'files'
-                file_name = f'PNFService.exe'
-                full_dir_name = os.path.join(os.getcwd(), dir)
 
-                file_n = os.path.join(full_dir_name, file_name)
 
+                file_n = os.path.join(REPOSITORY, 'PNFService.exe.manifest')
+                #logger.info(file_n )
                 ver = params['ver']
+
                 #print(ver)
-                ver_file = methods.getFileProperties(file_n)
+                #ver_file = methods.getFileProperties(file_n)
+                if os.path.exists(file_n):
+                    #logger.info(f'TRUE')
+                    ver_file = read_manifest(file_n)
+                else:
+                    logger.error(
+                        f'34 In REPO is not manifest file')
+                    return web.json_response(
+                        getResponseJSON(0, 'Need update service', {"need_update": False}), status=RESPONSE_STATUS)
+
                 #print(ver_file['FileVersion'])
 
-                if ver == ver_file['FileVersion']:
+                if ver == ver_file:
                     async with pool.acquire() as conn:
                         async with conn.transaction():
                             try:
-                                update_query = f'UPDATE polycomm_device SET service_version=\'{ver_file["FileVersion"]}\'' \
+                                update_query = f'UPDATE polycomm_device SET service_version=\'{ver_file}\'' \
                                     f' where code=\'{params["id"]}\';'
                                 # logger.info(update_query)
                                 await conn.execute(update_query)
@@ -887,10 +928,20 @@ async def needupadte(request):
                     async with pool.acquire() as conn:
                         async with conn.transaction():
                             try:
-                                message = f'Service file on machine_id {params["id"]} needs ' \
-                                    f' to update version from {ver} to {ver_file["FileVersion"]} '
-                                await send_message_to_bot(conn, message, 0)
-                                logger.info(f'32. {message}')
+                                polycom_dev_id = await conn.fetchval(
+                                    f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
+                                if not polycom_dev_id:
+                                    message = f'Machine with serial number {params["id"]} trying to send data into DB, but ' \
+                                        f'it isn`t registred'
+                                    await send_message_to_bot(conn, message, 0)
+                                    logger.info(f'132. {message}')
+                                    return web.json_response(
+                                        getResponseJSON(0, 'Need update service', {"need_update": False}),
+                                        status=RESPONSE_STATUS)
+                                else:
+                                    message = f'Machine {params["id"]} need to update service file to {ver_file}'
+                                    await send_message_to_bot(conn, message, polycom_dev_id)
+
                             except Exception:
                                 logger.exception('33. Cannot send info to messenger')
                     return web.json_response(getResponseJSON(0, 'Need update service', {"need_update": True}),
@@ -898,3 +949,13 @@ async def needupadte(request):
 
     except Exception:
         logger.exception("что то пошло не так")
+
+
+
+
+def read_manifest(manifest):
+    doc = xml.dom.minidom.parse(manifest)
+    version = doc.getElementsByTagName("assemblyIdentity")
+    for f_ver in version:
+        if f_ver.getAttribute('name') == 'PNFService':
+            return f_ver.getAttribute('version')
