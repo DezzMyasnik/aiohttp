@@ -16,12 +16,13 @@ DB_DATABASE = 'control_db'
 DB_USER = 'user_ctrl'
 DB_PASSWORD = 'Fdeolgn^4dg'
 """
-"""
+
 DB_HOST = 'localhost'
 DB_PORT = '5432'
 DB_DATABASE = 'postgres'
 DB_USER = 'postgres'
 DB_PASSWORD = '123456'
+
 """
 
 DB_HOST = '192.168.205.100'
@@ -29,7 +30,7 @@ DB_PORT = '5432'
 DB_DATABASE = 'control_db'
 DB_USER = 'user_ctrl'
 DB_PASSWORD = 'Fdeolgn^4dg'
-
+"""
 
 RESPONSE_CODE = 'responseCode'
 RESPONSE_MESSAGE = 'responseMessage'
