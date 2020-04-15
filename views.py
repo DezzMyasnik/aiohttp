@@ -231,21 +231,22 @@ async def collectors(request):
                 return web.json_response(getResponseJSON(5, 'No connection to the database', {}),
                                          status=RESPONSE_STATUS)
             params = request.rel_url.query
-            async with pool.acquire() as conn:
-                if params:
+
+            if params:
+                async with pool.acquire() as conn:
                     async with conn.transaction():
                         polycom_dev_id = await conn.fetchval(f'SELECT id FROM polycomm_device WHERE code={params["id"]};')
-                    if not polycom_dev_id:
-                        message = f'Machine with serial number {params["id"]} trying to send data into DB, but ' \
+                if not polycom_dev_id:
+                    message = f'Machine with serial number {params["id"]} trying to send data into DB, but ' \
                                     f'it isn`t registred'
-                        await send_message_to_bot(pool, message, 0,logger)
-                    else:
-                        last_id = await get_last_ids(polycom_dev_id, params['tb_name'], pool, logger)
-                        return web.json_response(
+                    await send_message_to_bot(pool, message, 0,logger)
+                else:
+                    last_id = await get_last_ids(polycom_dev_id, params['tb_name'], pool, logger)
+                    return web.json_response(
                                     getResponseJSON(0, 'Request successfully processed', dict(last_id)),
                                     status=RESPONSE_STATUS)
-                else:
-                    return web.json_response(getResponseJSON(0, 'All OK, server is redy!!!', {}),
+            else:
+               return web.json_response(getResponseJSON(0, 'All OK, server is redy!!!', {}),
                                 status=RESPONSE_STATUS)
 
     except Exception as ex:
@@ -430,16 +431,13 @@ async def insert_suitcase_data(pool, delta, logger, poly_id, rec):
             async with pool.acquire() as conn:
                 async with conn.transaction():
                     polycomm_id = await conn.fetchval(insert_query)
-        if polycomm_id:
-            update_query = f'UPDATE polycomm_suitcase SET id={polycomm_id} where polycom_id={polycomm_id};'
-            # logger.info(update_query)
-            async with pool.acquire() as conn:
-                async with conn.transaction():
-                    await conn.execute(update_query)
-            if VERBOSE == 3:
-                # logger.debug('request data: ' + str(data))
-                logger.info(
-                    f'21 insert polycomsuitcase polycom_id= {polycomm_id} from machine_id = {poly_id}')
+                    if polycomm_id:
+                        update_query = f'UPDATE polycomm_suitcase SET id={polycomm_id} where polycom_id={polycomm_id};'
+                        await conn.execute(update_query)
+                        if VERBOSE == 3:
+
+                            logger.info(
+                                f'21 insert polycomsuitcase polycom_id= {polycomm_id} from machine_id = {poly_id}')
             return polycomm_id, issue_dict
         else:
             logger.info('22a Suitcase wasn`t inserted')
@@ -457,25 +455,27 @@ async def get_last_ids(id, name, pool, logger):
     :return: словарь дентификаторов последней записи упаковки/аларма
     """
     try:
-        async with pool.acquire() as conn:
+
             if name == 'Suitcase':
-                async with conn.transaction():
-                    last_id = await conn.fetchrow(f'SELECT polycommid, totalid, partialid FROM polycomm_suitcase '
-                                                  f'WHERE device =\'{id}\' ORDER BY polycommid DESC LIMIT 1;')
-                if not last_id:
-                    last_id = {'polycommid': 0, 'totalid': 0, 'partialid': 0}
+                async with pool.acquire() as conn:
+                    async with conn.transaction():
+                        last_id = await conn.fetchrow(f'SELECT polycommid, totalid, partialid FROM polycomm_suitcase '
+                                                      f'WHERE device =\'{id}\' ORDER BY polycommid DESC LIMIT 1;',timeout=10)
+                        if not last_id:
+                            last_id = {'polycommid': 0, 'totalid': 0, 'partialid': 0}
 
             elif name == 'Allarmi':
-                async with conn.transaction():
-                    last_id = await conn.fetchrow(f'SELECT polycommid, total FROM polycommalarm '
-                                                  f'WHERE device =\'{id}\' ORDER BY polycommid DESC LIMIT 1;')
-                if not last_id:
-                    last_id = {'polycommid': 0, 'total': 0}
-                elif not last_id['total']:
-                    last_id = {'polycommid': last_id['polycommid']}
-        return last_id
+                async with pool.acquire() as conn:
+                    async with conn.transaction():
+                        last_id = await conn.fetchrow(f'SELECT polycommid, total FROM polycommalarm '
+                                                      f'WHERE device =\'{id}\' ORDER BY polycommid DESC LIMIT 1;',timeout=10)
+                        if not last_id:
+                            last_id = {'polycommid': 0, 'total': 0}
+                        elif not last_id['total']:
+                            last_id = {'polycommid': last_id['polycommid']}
+            return last_id
     except Exception as exc:
-        logger.error(f"get last ids error: {exc}")
+        logger.exception(f"get last ids error: {exc} {id} {name}")
 
 
 async def create_insert_query_polycomm(pool, delta, logger, poly_id, rec):
@@ -483,10 +483,18 @@ async def create_insert_query_polycomm(pool, delta, logger, poly_id, rec):
     Формируем строку запроса для вставки упаковки в бльшую БД из локальной БД Polycomm
     '''
     try:
-        last_id = await get_last_ids(poly_id, "Suitcase", pool, logger)
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                last_id = await conn.fetchrow(f'SELECT polycommid, totalid, partialid FROM polycomm_suitcase '
+                                              f'WHERE device =\'{id}\' ORDER BY polycommid DESC LIMIT 1;',timeout=30)
+        if not last_id:
+            last_id = {'polycommid': 0, 'totalid': 0, 'partialid': 0}
+        #last_id = await get_last_ids(poly_id, "Suitcase", pool, logger)
+
+
         if rec["ID"]>last_id['polycommid']:
             if not rec["Data_ini"]:
-                rec['Data_ini'] = rec['Data']
+              rec['Data_ini'] = rec['Data']
             if 'T' in rec['Data']:
                 rec['Data'] = rec["Data"].replace('T', ' ')
                 rec['Data_ini'] = rec["Data_ini"].replace('T', ' ')
@@ -516,37 +524,37 @@ async def create_insert_query_polycomm(pool, delta, logger, poly_id, rec):
             elif duration.seconds > max_time:
                 issue_dict['durationOverLimit'] += 1
             insert_query = f'INSERT INTO polycomm_suitcase (packer_error,' \
-                f'device,' \
-                f'device_id,' \
-                f'polycommid,' \
-                f'dateini,' \
-                f'date,' \
-                f'totalid,' \
-                f'partialid, ' \
-                f'alarmon,' \
-                f'outcome,' \
-                f'koweight,' \
-                f'kostop,' \
-                f'duration, ' \
-                f'package_type, ' \
-                f'package_type_final, ' \
-                f'resolved,' \
-                f'local_date,' \
-                f'dateini_local) VALUES ({False},' \
-                f'\'{poly_id}\',' \
-                f'{poly_id},' \
-                f'{rec["ID"]},' \
-                f'\'{moscow_dateini}\',' \
-                f'\'{moscow_date}\',' \
-                f'{rec["ID_Totale"]},' \
-                f'{rec["ID_Parziale"]},' \
-                f'{rec["Allarme_ON"]},' \
-                f'{rec["Esito"]},' \
-                f'{rec["KO_Peso"]},' \
-                f'{rec["KO_STOP"]},' \
-                f'{duration.seconds},' \
-                f'{result_pack_type}, {result_pack_type}, {False},' \
-                f'\'{end_time}\', \'{start_time}\') RETURNING polycom_id;'
+                    f'device,' \
+                    f'device_id,' \
+                    f'polycommid,' \
+                    f'dateini,' \
+                    f'date,' \
+                    f'totalid,' \
+                    f'partialid, ' \
+                    f'alarmon,' \
+                    f'outcome,' \
+                    f'koweight,' \
+                    f'kostop,' \
+                    f'duration, ' \
+                    f'package_type, ' \
+                    f'package_type_final, ' \
+                    f'resolved,' \
+                    f'local_date,' \
+                    f'dateini_local) VALUES ({False},' \
+                    f'\'{poly_id}\',' \
+                    f'{poly_id},' \
+                    f'{rec["ID"]},' \
+                    f'\'{moscow_dateini}\',' \
+                    f'\'{moscow_date}\',' \
+                    f'{rec["ID_Totale"]},' \
+                    f'{rec["ID_Parziale"]},' \
+                    f'{rec["Allarme_ON"]},' \
+                    f'{rec["Esito"]},' \
+                    f'{rec["KO_Peso"]},' \
+                    f'{rec["KO_STOP"]},' \
+                    f'{duration.seconds},' \
+                    f'{result_pack_type}, {result_pack_type}, {False},' \
+                    f'\'{end_time}\', \'{start_time}\') RETURNING polycom_id;'
             return insert_query, issue_dict
         else:
             return None, None
@@ -565,7 +573,13 @@ async def create_insert_query_packfly(pool, delta, logger, poly_id, rec):
     :return:
     """
     try:
-        last_id = await get_last_ids(poly_id, "Suitcase", pool, logger)
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                last_id = await conn.fetchrow(f'SELECT polycommid, totalid, partialid FROM polycomm_suitcase '
+                                              f'WHERE device =\'{id}\' ORDER BY polycommid DESC LIMIT 1;')
+        if not last_id:
+            last_id = {'polycommid': 0, 'totalid': 0, 'partialid': 0}
+        #last_id = await get_last_ids(poly_id, "Suitcase", pool, logger)
 
         if 'T' in rec['Data_Fine']:
             rec['Data_Fine'] = rec["Data_Fine"].replace('T', ' ')
@@ -576,7 +590,7 @@ async def create_insert_query_packfly(pool, delta, logger, poly_id, rec):
         moscow_dateini = start_time + timedelta(seconds=delta.total_seconds())
         duration = end_time - start_time
         issue_dict = defaultdict(int)
-        if rec['ID'] - last_id[0] is not 1:
+        if rec['ID'] - last_id['polycommid'] is not 1:
             issue_dict['invalidRecordsNumeration'] += 1
         min_time, max_time = await get_max_min_duration(pool, logger)
         if duration.seconds < min_time:
@@ -662,10 +676,10 @@ def check_ids_increment(last_id, logger, poly_id, rec):
                 logger.info(f'30b total_id currupted counter on device =\'{poly_id}\' ')
             elif rec["ID_Parziale"] - last_id['partialid'] not in range(0, 2):
                 pack_type = 999
-                logger.error(f'31 partial_id currupted counter device =\'{poly_id}\'')
+                logger.info(f'31 partial_id currupted counter device =\'{poly_id}\'')
         elif rec["ID"] - last_id['polycommid'] is not 1:
             pack_type = 777
-            logger.error(f'26 last_id wasn`t incremented.Some trouble on device =\'{poly_id}\' {pack_type}')
+            logger.info(f'26 last_id wasn`t incremented.Some trouble on device =\'{poly_id}\' {pack_type}')
     else:
         logger.error(f'27 last_id wasn`t incremented. Some trouble on device =\'{poly_id}\'')
 
@@ -681,10 +695,9 @@ async def get_max_min_duration(pool, logger):
     '''
     try:
         async with pool.acquire() as conn:
-
-            async with conn.transaction():
+           async with conn.transaction():
                 min_time, max_time = await conn.fetchrow(
-                    'SELECT suitcase_dur_min_thres, suitcase_dur_max_thres  FROM pnf_config WHERE pnf_config_id=1;')
+                    'SELECT suitcase_dur_min_thres, suitcase_dur_max_thres  FROM pnf_config WHERE pnf_config_id=1;', timeout=30)
         if not max_time or not min_time:
             min_time, max_time = 30, 120
         return min_time, max_time
