@@ -11,5 +11,5 @@ multidict==4.6.1
 pycares==3.0.0
 pycparser==2.19
 pytz==2019.3
-pywin32==227
+pywin32==301
 yarl==1.4.1
